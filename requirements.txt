@@ -1,0 +1,23 @@
+# Core dependencies
+numpy>=1.26.0
+pandas>=2.0.0
+scipy>=1.11.0
+scikit-learn>=1.3.0
+
+# Deep learning
+torch>=2.0.0
+torchvision>=0.15.0
+
+# Explainability
+shap>=0.46.0
+sage-importance>=0.0.5
+
+# Synthetic data generation
+river>=0.21.0
+
+# Visualization (optional)
+matplotlib>=3.8.0
+seaborn>=0.13.0
+
+# Utilities
+tqdm>=4.66.0

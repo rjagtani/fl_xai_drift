@@ -1,0 +1,199 @@
+"""
+SHAP (SHapley Additive exPlanations) feature importance using KernelSHAP.
+
+Uses the shap package for computing prediction-based Shapley values.
+"""
+
+from typing import Callable, Optional
+import numpy as np
+
+from .base import BaseImportanceComputer, FeatureImportanceResult
+
+# Import SHAP
+try:
+    import shap
+    SHAP_AVAILABLE = True
+except ImportError:
+    SHAP_AVAILABLE = False
+    print("Warning: shap package not available. Install with: pip install shap")
+
+
+class SHAPComputer(BaseImportanceComputer):
+    """
+    SHAP feature importance using KernelSHAP.
+    
+    KernelSHAP is a model-agnostic method that approximates SHAP values
+    using a weighted linear regression approach.
+    
+    For diagnosis, we use mean absolute SHAP values across samples:
+    |SHAP|[j] = mean(|shap_s,j|) for all samples s
+    """
+    
+    def __init__(
+        self,
+        background_size: int = 50,
+        use_kmeans: bool = True,
+        n_samples_explain: int = 100,  # Number of samples to explain
+        random_state: int = 42,
+        silent: bool = True,
+    ):
+        super().__init__(
+            background_size=background_size,
+            use_kmeans=use_kmeans,
+            random_state=random_state,
+        )
+        self.n_samples_explain = n_samples_explain
+        self.silent = silent
+    
+    def compute(
+        self,
+        model_fn: Callable,
+        X_background: np.ndarray,
+        X_estimation: np.ndarray,
+        y_estimation: np.ndarray,  # Not directly used (prediction-based)
+    ) -> np.ndarray:
+        """
+        Compute mean absolute SHAP values using KernelSHAP.
+        
+        Args:
+            model_fn: Function that takes X and returns probabilities
+            X_background: Background data for KernelSHAP
+            X_estimation: Data to explain
+            y_estimation: Labels (used for selecting correct class probabilities)
+        
+        Returns:
+            Array of mean absolute SHAP values per feature
+        """
+        if not SHAP_AVAILABLE:
+            raise ImportError("shap package required for SHAP computation")
+        
+        X_background = np.asarray(X_background, dtype=np.float32)
+        X_estimation = np.asarray(X_estimation, dtype=np.float32)
+        y_estimation = np.asarray(y_estimation, dtype=np.int64)
+        
+        # Limit number of samples to explain
+        n_explain = min(self.n_samples_explain, len(X_estimation))
+        rng = np.random.default_rng(self.random_state)
+        indices = rng.choice(len(X_estimation), size=n_explain, replace=False)
+        X_explain = X_estimation[indices]
+        y_explain = y_estimation[indices]
+        
+        # Create KernelSHAP explainer
+        # Use kmeans summary of background data for efficiency
+        if len(X_background) > 50:
+            background_summary = shap.kmeans(X_background, min(50, len(X_background)))
+        else:
+            background_summary = X_background
+        
+        explainer = shap.KernelExplainer(model_fn, background_summary, silent=self.silent)
+        
+        # Compute SHAP values
+        shap_values = explainer.shap_values(X_explain, silent=self.silent)
+        
+        # shap_values can be:
+        # - list [class0_shap, class1_shap, ...] each (n_samples, n_features)
+        # - array (n_samples, n_features) for binary in some versions
+        # - array (n_samples, n_features, n_classes) for binary with predict_proba
+        if isinstance(shap_values, list):
+            all_shap = np.zeros((n_explain, X_estimation.shape[1]))
+            for i in range(n_explain):
+                all_shap[i] = shap_values[y_explain[i]][i]
+        else:
+            shap_values = np.asarray(shap_values)
+            if shap_values.ndim == 3:
+                # (n_samples, n_features, n_classes) -> reduce to (n_samples, n_features)
+                all_shap = np.mean(np.abs(shap_values), axis=-1)
+            else:
+                all_shap = shap_values
+        
+        # Mean absolute SHAP values per feature -> shape (n_features,)
+        mean_abs_shap = np.mean(np.abs(all_shap), axis=0)
+        if mean_abs_shap.ndim > 1:
+            mean_abs_shap = np.mean(mean_abs_shap, axis=-1)
+        return mean_abs_shap.ravel()
+    
+    def compute_raw_shap(
+        self,
+        model_fn: Callable,
+        X_background: np.ndarray,
+        X_estimation: np.ndarray,
+    ) -> np.ndarray:
+        """
+        Compute raw SHAP values for all samples.
+        
+        Returns:
+            Array of shape (n_samples, n_features) with SHAP values
+        """
+        if not SHAP_AVAILABLE:
+            raise ImportError("shap package required")
+        
+        X_background = np.asarray(X_background, dtype=np.float32)
+        X_estimation = np.asarray(X_estimation, dtype=np.float32)
+        
+        if len(X_background) > 50:
+            background_summary = shap.kmeans(X_background, min(50, len(X_background)))
+        else:
+            background_summary = X_background
+        
+        explainer = shap.KernelExplainer(model_fn, background_summary, silent=self.silent)
+        shap_values = explainer.shap_values(X_estimation, silent=self.silent)
+        
+        if isinstance(shap_values, list):
+            return shap_values[1]  # Positive class (n_samples, n_features)
+        shap_values = np.asarray(shap_values)
+        if shap_values.ndim == 3:
+            return np.mean(shap_values, axis=-1)  # (n_samples, n_features)
+        return shap_values
+    
+    def compute_for_client(
+        self,
+        model,
+        client_data,
+        estimation_fraction: float = 0.2,
+    ) -> FeatureImportanceResult:
+        """
+        Compute SHAP values for a specific client.
+        
+        Args:
+            model: Model with predict_proba method
+            client_data: ClientDataset instance
+            estimation_fraction: Fraction of validation data to use
+        
+        Returns:
+            FeatureImportanceResult with mean absolute SHAP values
+        """
+        # Create background set from training data
+        X_background = self.create_background_set(
+            client_data.X_train,
+            max_size=self.background_size,
+        )
+        
+        # Create estimation set
+        X_est, y_est = self.create_estimation_set(
+            client_data.X_val,
+            client_data.y_val,
+            fraction=estimation_fraction,
+        )
+        
+        # Get model prediction function
+        if hasattr(model, 'predict_proba'):
+            model_fn = model.predict_proba
+        elif hasattr(model, '__call__'):
+            model_fn = lambda x: model(x)
+        else:
+            raise ValueError("Model must have predict_proba method or be callable")
+        
+        # Compute SHAP values
+        shap_values = self.compute(
+            model_fn,
+            X_background,
+            X_est,
+            y_est,
+        )
+        
+        return FeatureImportanceResult(
+            client_id=client_data.client_id,
+            round_num=-1,
+            values=shap_values,
+            method='shap',
+        )
