@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 """
 Sweep RDS hyperparameters on existing runs (no retraining).
 Varies: FWER (1%, 5%, 10%), window size (1, 3, 5), confirm_consecutive (1, 3, 5).
@@ -19,12 +18,10 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-# Add project root
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from src.triggers.drift_detectors import RDSDetector, bonferroni_k
 
-# Datasets to sweep (must have loss_matrix.npy and metadata.json)
 DATASETS = ['fed_heart_sudden', 'diabetes_gradual', 'hyperplane_gradual', 'credit_sudden']
 DISPLAY_NAMES = {
     'fed_heart_sudden': 'FedHeart (Sudden)',
@@ -88,7 +85,7 @@ def run_rds_with_params(data, fwer_p: float, window_size: int, confirm_consecuti
     Delay is 1-based: (trigger_round+1) - t0, so >=0 means correct detection."""
     n_rounds = data['n_rounds']
     cal_end = data['cal_end']
-    t0 = data['t0']  # 1-based
+    t0 = data['t0']
     k = bonferroni_k(n_rounds, cal_end, fwer_p)
     detector = RDSDetector(
         warmup_rounds=data['warmup'],
@@ -108,7 +105,6 @@ def run_rds_with_params(data, fwer_p: float, window_size: int, confirm_consecuti
         client_weights=None,
     )
     if result.triggered and result.trigger_round is not None and t0 is not None:
-        # 1-based trigger round - 1-based t0 (same as run_drift_types)
         delay = (result.trigger_round + 1) - t0
     else:
         delay = None
@@ -131,13 +127,11 @@ def compute_f1_delay(seed_results):
 
 def run_sweep(runs_by_exp):
     """Sweep all param combos; return nested dicts for plotting."""
-    # [dataset][fwer_p][window][consec] -> (f1, delay)  for default other params
-    # We do 3 separate 1D sweeps: vary one param, fix others (5%, 3, 3).
     default_fwer = 0.05
     default_window = 3
     default_consec = 3
 
-    results_fwer = defaultdict(dict)   # dataset -> fwer_p -> (f1, delay)
+    results_fwer = defaultdict(dict)
     results_window = defaultdict(dict)
     results_consec = defaultdict(dict)
 
@@ -209,7 +203,6 @@ def plot_sweep(results_fwer, results_window, results_consec, out_dir: Path):
     colors = ['#4a90d9', '#5cba7d', '#e07b54', '#9b59b6']
     markers = ['o', 's', '^', 'D']
 
-    # Figure 1: FWER sweep
     fig, (ax_f1, ax_delay) = plt.subplots(1, 2, figsize=(7.5, 2.8))
     handles = _draw_sweep_axes(
         ax_f1, ax_delay, results_fwer, FWER_VALUES, 'FWER',
@@ -221,7 +214,6 @@ def plot_sweep(results_fwer, results_window, results_consec, out_dir: Path):
         fig.savefig(out_dir / f'rds_sweep_fwer.{ext}', dpi=300, bbox_inches='tight')
     plt.close()
 
-    # Figure 2: Window size sweep
     fig, (ax_f1, ax_delay) = plt.subplots(1, 2, figsize=(7.5, 2.8))
     handles = _draw_sweep_axes(
         ax_f1, ax_delay, results_window, WINDOW_VALUES, 'Window size (rounds)',
@@ -233,7 +225,6 @@ def plot_sweep(results_fwer, results_window, results_consec, out_dir: Path):
         fig.savefig(out_dir / f'rds_sweep_window.{ext}', dpi=300, bbox_inches='tight')
     plt.close()
 
-    # Figure 3: Consecutive triggers sweep
     fig, (ax_f1, ax_delay) = plt.subplots(1, 2, figsize=(7.5, 2.8))
     handles = _draw_sweep_axes(
         ax_f1, ax_delay, results_consec, CONSECUTIVE_VALUES, 'Consecutive triggers',
@@ -245,20 +236,15 @@ def plot_sweep(results_fwer, results_window, results_consec, out_dir: Path):
         fig.savefig(out_dir / f'rds_sweep_consecutive.{ext}', dpi=300, bbox_inches='tight')
     plt.close()
 
-    # Appendix panel: 3 rows (FWER, window, consecutive) x 2 cols (F1, Delay), one shared legend.
-    # Left column = F1 score, right column = Delay (rounds). Row title indicates which param is swept.
     fig, axes = plt.subplots(3, 2, figsize=(7.5, 7.2))
-    # Row 0: FWER sweep
     h = _draw_sweep_axes(
         axes[0, 0], axes[0, 1], results_fwer, FWER_VALUES, 'FWER',
         FWER_VALUES, ['1%', '3%', '5%', '10%'], colors, markers)
     axes[0, 0].set_title('Varying FWER', fontsize=10)
-    # Row 1: Window size sweep
     _draw_sweep_axes(
         axes[1, 0], axes[1, 1], results_window, WINDOW_VALUES, 'Window size (rounds)',
         WINDOW_VALUES, [str(v) for v in WINDOW_VALUES], colors, markers)
     axes[1, 0].set_title('Varying window size', fontsize=10)
-    # Row 2: Consecutive triggers sweep
     _draw_sweep_axes(
         axes[2, 0], axes[2, 1], results_consec, CONSECUTIVE_VALUES, 'Consecutive triggers',
         CONSECUTIVE_VALUES, [str(v) for v in CONSECUTIVE_VALUES], colors, markers)
@@ -293,7 +279,6 @@ def main():
     print("Writing plots...")
     plot_sweep(results_fwer, results_window, results_consec, out_dir)
 
-    # Also write a small CSV summary
     lines = ['dataset,param_type,param_value,f1,delay']
     for exp in DATASETS:
         for p, (f1, d) in results_fwer.get(exp, {}).items():

@@ -30,7 +30,6 @@ class MLP(nn.Module):
         self.hidden_sizes = hidden_sizes
         self.n_classes = n_classes
         
-        # Build layers
         layers = []
         prev_size = input_size
         
@@ -41,7 +40,6 @@ class MLP(nn.Module):
                 layers.append((f'dropout{i+1}', nn.Dropout(dropout)))
             prev_size = hidden_size
         
-        # Output layer
         layers.append(('output', nn.Linear(prev_size, n_classes)))
         
         self.network = nn.Sequential(OrderedDict(layers))

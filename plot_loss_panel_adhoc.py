@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 """
 Ad-hoc script: 4x2 Loss + RDS panel — FedHeart & Diabetes on top row, Hyperplane & Wine below (more horizontal space per plot).
 
@@ -20,7 +19,6 @@ from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
 from matplotlib.patches import Patch
 from matplotlib.lines import Line2D
 
-# Layout: top row FedHeart, Diabetes; bottom row Hyperplane, Wine (2 cols = more horizontal space per plot)
 EXPERIMENTS = ['fed_heart_sudden', 'diabetes_gradual', 'hyperplane_gradual', 'wine_sudden']
 DISPLAY_NAMES = {
     'fed_heart_sudden': 'FedHeart (Sudden)',
@@ -74,7 +72,6 @@ def main():
     out_dir = args.out_dir or (args.results_dir / 'summary')
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Find first seed for each experiment (e.g. fed_heart_sudden_seed42)
     run_dirs = {}
     for exp in EXPERIMENTS:
         for d in sorted(args.results_dir.iterdir()):
@@ -82,8 +79,6 @@ def main():
                 run_dirs[exp] = d
                 break
 
-    # Nested gridspec: outer has 2 rows (top block, bottom block) with a gap between them;
-    # each inner block has 2 rows x 2 cols with hspace=0 (Loss+RDS tight within each pair).
     fig = plt.figure(figsize=(12, 10))
     outer = GridSpec(2, 1, figure=fig, hspace=0.22)
     inner_top = GridSpecFromSubplotSpec(2, 2, subplot_spec=outer[0], hspace=0)
@@ -94,7 +89,6 @@ def main():
         axes[1, c] = fig.add_subplot(inner_top[1, c], sharex=axes[0, c])
         axes[2, c] = fig.add_subplot(inner_bot[0, c])
         axes[3, c] = fig.add_subplot(inner_bot[1, c], sharex=axes[2, c])
-    # Thin & lighten all subplot spines so they don't compete with the threshold line
     for row in range(4):
         for col in range(2):
             for spine in axes[row, col].spines.values():
@@ -103,7 +97,7 @@ def main():
     color_loss = '#2171b5'
     color_t0 = '#cb181d'
     color_trigger = '#238b45'
-    color_threshold = '#c0392b'  # dark red, high contrast so threshold is visible on all RDS plots
+    color_threshold = '#c0392b'
     gray_warmup = '#969696'
     amber_cal = '#fec44f'
     alpha_warmup, alpha_cal = 0.35, 0.25
@@ -111,7 +105,7 @@ def main():
     for idx, exp in enumerate(EXPERIMENTS):
         run_dir = run_dirs.get(exp)
         col = idx % 2
-        row_block = 0 if idx < 2 else 2  # first two: rows 0,1; next two: rows 2,3
+        row_block = 0 if idx < 2 else 2
         ax_loss = axes[row_block, col]
         ax_rds = axes[row_block + 1, col]
         if run_dir is None:
@@ -137,7 +131,6 @@ def main():
         drift_type = data.get('drift_type', 'sudden')
         rounds = np.arange(1, n_rounds + 1)
 
-        # Loss
         ax_loss.plot(rounds, data['loss'], color=color_loss, linewidth=1.8, zorder=3)
         ax_loss.axvspan(1, warmup + 0.5, alpha=alpha_warmup, color=gray_warmup, zorder=0)
         ax_loss.axvspan(cal_start - 0.5, cal_end + 0.5, alpha=alpha_cal, color=amber_cal, zorder=0)
@@ -151,12 +144,10 @@ def main():
         ax_loss.set_title(DISPLAY_NAMES.get(exp, exp), fontsize=11)
         ax_loss.grid(True, alpha=0.35)
         ax_loss.set_xlim(1, n_rounds)
-        ax_loss.tick_params(axis='x', labelbottom=False)  # only RDS row shows Round
+        ax_loss.tick_params(axis='x', labelbottom=False)
 
-        # RDS
         if rds_scores is not None and len(rds_scores) > 0:
             rds_rounds = np.arange(warmup + 1, warmup + 1 + len(rds_scores), dtype=float)[:len(rds_scores)]
-            # For non-recurring: stop RDS at trigger round (like detector used to) so line doesn't keep rising
             is_recurring = drift_type == 'recurring'
             if not is_recurring and rds_trigger_round is not None:
                 mask = rds_rounds <= rds_trigger_round
@@ -179,7 +170,6 @@ def main():
                         pass
                 if th_vals:
                     ax_rds.plot(th_rounds, th_vals, color=color_threshold, linestyle='-', linewidth=2.5, zorder=4)
-                    # Ensure ylim includes threshold so it's not clipped (e.g. FedHeart, Hyperplane)
                     ylo, yhi = ax_rds.get_ylim()
                     th_min, th_max = min(th_vals), max(th_vals)
                     ax_rds.set_ylim(min(ylo, th_min) - 0.02 * (yhi - ylo or 1),
@@ -197,7 +187,6 @@ def main():
             ax_rds.text(0.5, 0.5, 'No RDS data', ha='center', va='center', transform=ax_rds.transAxes, fontsize=10)
             ax_rds.set_ylabel('RDS score', fontsize=10)
             ax_rds.set_xlim(1, n_rounds)
-        # Both RDS rows (bottom of each block) get the Round x-axis label
         ax_rds.set_xlabel('Round', fontsize=10)
 
     fig.legend(
@@ -211,7 +200,6 @@ def main():
         labels=['Warmup', 'Calibration', 'Drift onset', 'RDS trigger', 'Threshold'],
         loc='lower center', ncol=5, fontsize=9, frameon=True,
     )
-    # No tight_layout — gridspec handles spacing; leave room for legend below plots
     fig.subplots_adjust(bottom=0.09)
     for ext in ['png', 'pdf']:
         fig.savefig(out_dir / f'loss_panel.{ext}', dpi=300, bbox_inches='tight')

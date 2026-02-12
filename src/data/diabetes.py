@@ -32,7 +32,7 @@ class DiabetesDataGenerator(BaseDataGenerator):
     def __init__(
         self,
         n_clients: int = 6,
-        n_samples_per_client: int = 500,  # not used when use_all_data_per_client=True
+        n_samples_per_client: int = 500,
         test_size: float = 0.2,
         seed: int = 42,
         use_all_data_per_client: bool = True,
@@ -51,26 +51,20 @@ class DiabetesDataGenerator(BaseDataGenerator):
         self._scaler: Optional[StandardScaler] = None
         self._feature_names: List[str] = DIABETES_FEATURE_NAMES.copy()
 
-    # ------------------------------------------------------------------
-    # Data loading
-    # ------------------------------------------------------------------
 
     def _ensure_data(self):
         if self._X_full is not None:
             return
 
-        # CSV ships with the repo at  <repo_root>/datasets/diabetes.csv
-        csv_path = Path(__file__).resolve().parents[3] / 'datasets' / 'diabetes.csv'
+        csv_path = Path(__file__).resolve().parents[2] / 'datasets' / 'diabetes.csv'
         df = pd.read_csv(csv_path)
 
         y = df['Outcome'].values.astype(np.int64)
         X = df[DIABETES_FEATURE_NAMES].values.astype(np.float64)
 
-        # Partition by Age bins
         age_col = df['Age'].values.astype(float)
         self._client_to_indices = self._build_client_indices(age_col)
 
-        # Scale features
         self._scaler = StandardScaler()
         self._X_full = self._scaler.fit_transform(X).astype(np.float32)
         self._y_full = y
@@ -105,15 +99,12 @@ class DiabetesDataGenerator(BaseDataGenerator):
             out[c] = ind
         return out
 
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
 
     def get_feature_names(self) -> List[str]:
         return self._feature_names.copy()
 
     def get_drifted_feature_indices(self) -> Set[int]:
-        return {1}  # Glucose
+        return {1}
 
     def generate_static_client_data(
         self,

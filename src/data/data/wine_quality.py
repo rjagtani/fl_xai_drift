@@ -14,12 +14,11 @@ from sklearn.datasets import fetch_openml
 
 from .base import BaseDataGenerator, ClientDataset
 
-# Red wine quality (OpenML): 11 features + quality. Quality binarized to good (>=6) / bad (<6).
 WINE_FEATURE_NAMES = [
     'fixed.acidity', 'volatile.acidity', 'citric.acid', 'residual.sugar',
     'chlorides', 'free.sulfur.dioxide', 'total.sulfur.dioxide', 'density', 'pH', 'sulphates', 'alcohol',
 ]
-ALCOHOL_COL = 10  # Index of alcohol for drift condition (raw value before scaling)
+ALCOHOL_COL = 10
 
 
 class WineQualityDataGenerator(BaseDataGenerator):
@@ -53,7 +52,6 @@ class WineQualityDataGenerator(BaseDataGenerator):
         self._feature_names: List[str] = WINE_FEATURE_NAMES.copy()
 
     def _load_and_preprocess(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        # Red wine quality from OpenML
         data = fetch_openml("wine_quality", as_frame=True, parser="auto")
         df = data.frame
         quality_col = "quality"
@@ -72,7 +70,6 @@ class WineQualityDataGenerator(BaseDataGenerator):
         return X, y, quality_raw, partition_raw
 
     def _build_client_indices(self, X: np.ndarray, partition_raw: np.ndarray) -> Dict[int, np.ndarray]:
-        # Bin partition column (alcohol) into n_clients bins for non-IID partition
         bins = np.percentile(partition_raw, np.linspace(0, 100, self.n_clients + 1))
         bins[-1] += 1e-6
         bin_idx = np.digitize(partition_raw, bins) - 1
@@ -98,9 +95,7 @@ class WineQualityDataGenerator(BaseDataGenerator):
             return
         X, y, quality_raw, partition_raw = self._load_and_preprocess()
         self._client_to_indices = self._build_client_indices(X, partition_raw)
-        # Store raw alcohol BEFORE scaling (for drift condition)
         self._raw_alcohol = X[:, self._alcohol_col].copy()
-        # Auto-set threshold as median if threshold is None
         if self.drift_condition_threshold is None:
             self.drift_condition_threshold = float(np.median(self._raw_alcohol))
         self._scaler = StandardScaler()

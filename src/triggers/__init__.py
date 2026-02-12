@@ -27,7 +27,6 @@ from .fl_baselines import (
 )
 
 __all__ = [
-    # Loss-based detectors (σ-normalized)
     'RDSDetector',
     'CUSUMDetector',
     'PageHinkleyDetector',
@@ -36,10 +35,8 @@ __all__ = [
     'MultiMethodDetector',
     'DriftDetectionResult',
     'compute_rds',
-    # Feature-level PH (for diagnosis)
     'FeaturePHDetector',
     'FeaturePageHinkley',
-    # FL Baselines
     'FLASHDetector',
     'CDAFedAvgDetector',
     'ManiasPCAKMeansDetector',

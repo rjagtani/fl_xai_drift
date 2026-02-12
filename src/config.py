@@ -15,24 +15,20 @@ import json
 class DatasetConfig:
     """Configuration for dataset generation."""
     
-    name: str = "hyperplane"  # 'hyperplane' or 'agrawal'
+    name: str = "hyperplane"
     n_features: int = 5
     n_samples_per_client: int = 500
     test_size: float = 0.2
-    # If True (Adult/Wine), each client keeps all its data; no subsample or oversample to n_samples_per_client
     use_all_data_per_client: bool = False
     noise: float = 0.05
     
-    # Hyperplane-specific
     n_drift_features: int = 1
     mag_change: float = 0.5
     sigma: float = 0.1
     
-    # Agrawal-specific
-    classification_function_pre: int = 0  # Classification function before drift
-    classification_function_post: int = 1  # Classification function after drift (concept drift)
+    classification_function_pre: int = 0
+    classification_function_post: int = 1
     
-    # Adult-specific: feature-conditioned drift (e.g. flip label with prob when age>=50)
     drift_condition_feature: str = "age"
     drift_condition_threshold: float = 50.0
     drift_flip_prob: float = 0.3
@@ -83,9 +79,8 @@ class FLConfig:
     batch_size: int = 32
     learning_rate: float = 0.05
     momentum: float = 0.5
-    participation_fraction: float = 1.0  # Full participation by default
+    participation_fraction: float = 1.0
     
-    # Model architecture
     hidden_sizes: List[int] = field(default_factory=lambda: [128, 64])
     n_classes: int = 2
 
@@ -94,15 +89,14 @@ class FLConfig:
 class DriftConfig:
     """Configuration for drift injection."""
     
-    t0: int = 20  # Drift onset round
-    drifted_client_proportion: float = 0.4  # Proportion of clients affected
-    drift_magnitude: float = 0.5  # Dataset-specific magnitude
-    drifted_features: Set[int] = field(default_factory=set)  # Ground truth drifted feature indices
+    t0: int = 20
+    drifted_client_proportion: float = 0.4
+    drift_magnitude: float = 0.5
+    drifted_features: Set[int] = field(default_factory=set)
     
     def get_drifted_clients(self, n_clients: int) -> Set[int]:
         """Return set of drifted client indices."""
         n_drifted = int(n_clients * self.drifted_client_proportion)
-        # Drifted clients are the last n_drifted clients
         return set(range(n_clients - n_drifted, n_clients))
 
 
@@ -117,28 +111,22 @@ class TriggerConfig:
     - CUSUM / PH: ARL-based, k_ref·σ₀ reference, h·σ₀ decision interval.
     """
     
-    # Warmup and calibration
-    warmup_rounds: int = 40  # Rounds before trigger can fire
-    calibration_start_round: int = 41  # Start of calibration period
-    calibration_end_round: int = 80  # End of calibration period
+    warmup_rounds: int = 40
+    calibration_start_round: int = 41
+    calibration_end_round: int = 80
     
-    # RDS / ADWIN / KSWIN parameters
-    rds_window: int = 5  # Window size for RDS computation
-    rds_alpha: float = None  # Bonferroni k (computed automatically if None)
-    confirm_consecutive: int = 3  # Require N consecutive triggers to confirm drift
-    fwer_p: float = 0.05  # FWER target for Bonferroni correction
+    rds_window: int = 5
+    rds_alpha: float = None
+    confirm_consecutive: int = 3
+    fwer_p: float = 0.05
     
-    # CUSUM / PH parameters (ARL-based)
-    cusum_k_ref: float = 0.5  # Reference value in σ units (detect 1σ shift)
-    cusum_h: float = 7.0  # Decision interval in σ units (ARL₀ ≈ 3000)
+    cusum_k_ref: float = 0.5
+    cusum_h: float = 7.0
     
-    # General
-    min_instances: int = 5  # Minimum instances before detection
+    min_instances: int = 5
     
-    # Page-Hinkley parameters (used by feature-level PH in diagnosis)
-    ph_delta: float = 0.005  # Minimum magnitude of change to detect
+    ph_delta: float = 0.005
     
-    # If True, skip FI computation and diagnosis when Stage 1 (loss) trigger does not fire
     skip_diagnosis_if_no_trigger: bool = True
 
 
@@ -157,26 +145,21 @@ class DiagnosisConfig:
     whichever is smaller.
     """
     
-    window_size: int = 5  # Number of rounds before trigger to analyze (= rds_window)
+    window_size: int = 5
     
-    # Feature importance computation
-    background_size: int = 32  # IID samples from training set for background
-    estimation_max_samples: int = 1000  # Max samples for estimation set (use full val if smaller)
-    n_perm: int = 5  # Number of permutations for PFI
+    background_size: int = 32
+    estimation_max_samples: int = 1000
+    n_perm: int = 5
     
-    # SAGE specific
-    sage_n_samples_max: int = 2048  # Max samples for SAGE
-    sage_thresh: float = 0.025  # SAGE convergence threshold
+    sage_n_samples_max: int = 2048
+    sage_thresh: float = 0.025
     
-    # SHAP/SAGE background
-    use_kmeans_background: bool = False  # IID sampling (not K-means)
+    use_kmeans_background: bool = False
     
-    # Dist(FI) parameters (within-window calibration)
-    dist_fi_rds_window: int = 5  # Window size for RDS computation (past rounds)
-    dist_fi_n_calibration: int = 3  # Number of RDS values for calibration
-    dist_fi_alpha: float = 2.33  # Threshold multiplier (z-score for ~1% FPR)
+    dist_fi_rds_window: int = 5
+    dist_fi_n_calibration: int = 3
+    dist_fi_alpha: float = 2.33
     
-    # Methods to compute
     compute_sage: bool = True
     compute_pfi: bool = True
     compute_shap: bool = True
@@ -186,19 +169,17 @@ class DiagnosisConfig:
 class MetricsConfig:
     """Configuration for evaluation metrics."""
     
-    k: int = 3  # K for Hits@K, Precision@K, Recall@K
-    use_ground_truth_k: bool = True  # If True, K = |S*|
+    k: int = 3
+    use_ground_truth_k: bool = True
 
 
 @dataclass
 class ExperimentConfig:
     """Complete experiment configuration."""
     
-    # Experiment identification
     seed: int = 42
     experiment_name: str = ""
     
-    # Sub-configurations
     dataset: DatasetConfig = field(default_factory=DatasetConfig)
     fl: FLConfig = field(default_factory=FLConfig)
     drift: DriftConfig = field(default_factory=DriftConfig)
@@ -206,7 +187,6 @@ class ExperimentConfig:
     diagnosis: DiagnosisConfig = field(default_factory=DiagnosisConfig)
     metrics: MetricsConfig = field(default_factory=MetricsConfig)
     
-    # Output paths
     base_output_dir: Path = field(default_factory=lambda: Path("results"))
     
     def __post_init__(self):

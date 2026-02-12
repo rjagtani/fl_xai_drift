@@ -16,8 +16,8 @@ class FeatureImportanceResult:
     
     client_id: int
     round_num: int
-    values: np.ndarray  # Shape: (n_features,)
-    method: str  # 'sage', 'pfi', or 'shap'
+    values: np.ndarray
+    method: str
     baseline_loss: Optional[float] = None
     total_loss: Optional[float] = None
 
@@ -57,12 +57,10 @@ class BaseImportanceComputer(ABC):
         target_size = min(max_size, n_samples)
         
         if not self.use_kmeans or n_samples <= target_size:
-            # Random sampling
             rng = np.random.default_rng(self.random_state)
             indices = rng.choice(n_samples, size=target_size, replace=False)
             return X[indices]
         
-        # K-means clustering
         kmeans = KMeans(
             n_clusters=target_size,
             random_state=self.random_state,

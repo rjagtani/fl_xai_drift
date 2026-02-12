@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 """
 Runtime breakdown plot for FedHeart (Sudden) and Credit (Sudden).
 
@@ -62,14 +61,12 @@ def main():
 
     data = load_timings(args.results_dir)
 
-    # --- Grouped bar chart: datasets on x-axis, components as groups ---
     components = [
         ('fl_train_total_s', 'FL Training (total)'),
         ('fl_train_per_round_avg_s', 'FL Training (per round)'),
         ('detection_rds_loss_s', 'RDS Detection (total)'),
         ('sage_trigger_client_mean_s', 'SAGE Diagnosis (per client)'),
     ]
-    # Softer, more pleasant palette
     colors = ['#7eb8da', '#4a90d9', '#5cba7d', '#e07b54']
 
     n_datasets = len(EXPERIMENTS)
@@ -88,7 +85,6 @@ def main():
         offset = (i - (n_components - 1) / 2) * bar_width
         bars = ax.bar(x + offset, means, width=bar_width, color=colors[i],
                       edgecolor='white', linewidth=0.6, label=label, zorder=3)
-        # Value labels (larger so they read clearly)
         for bar, mean_val in zip(bars, means):
             if mean_val >= 100:
                 txt = f'{mean_val:.0f}'
@@ -113,7 +109,6 @@ def main():
         spine.set_linewidth(0.5)
         spine.set_color('#aaaaaa')
 
-    # ylim with headroom
     all_means = []
     for exp in EXPERIMENTS:
         d = data.get(exp, {})

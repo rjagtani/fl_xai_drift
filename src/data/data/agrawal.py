@@ -30,22 +30,19 @@ class AgrawalDataGenerator(BaseDataGenerator):
     Different functions emphasize different features, enabling controlled drift.
     """
     
-    # Feature names for Agrawal dataset
     FEATURE_NAMES = ['salary', 'commission', 'age', 'elevel', 'car', 'zipcode', 'hvalue', 'hyears', 'loan']
     
-    # Mapping of classification functions to their relevant features (indices)
-    # These are approximations based on the Agrawal function definitions
     FUNCTION_RELEVANT_FEATURES = {
-        0: {2},  # age
-        1: {2, 3},  # age, elevel
-        2: {2, 3, 0},  # age, elevel, salary
-        3: {2, 3, 0, 1},  # age, elevel, salary, commission
-        4: {2, 0, 1, 6},  # age, salary, commission, hvalue
-        5: {2, 0, 4},  # age, salary, car
-        6: {2, 0, 3, 7},  # age, salary, elevel, hyears
-        7: {2, 0, 6, 8},  # age, salary, hvalue, loan
-        8: {2, 0, 1, 5},  # age, salary, commission, zipcode
-        9: {2, 0, 1, 6, 8},  # age, salary, commission, hvalue, loan
+        0: {2},
+        1: {2, 3},
+        2: {2, 3, 0},
+        3: {2, 3, 0, 1},
+        4: {2, 0, 1, 6},
+        5: {2, 0, 4},
+        6: {2, 0, 3, 7},
+        7: {2, 0, 6, 8},
+        8: {2, 0, 1, 5},
+        9: {2, 0, 1, 6, 8},
     }
     
     def __init__(
@@ -68,20 +65,16 @@ class AgrawalDataGenerator(BaseDataGenerator):
         self.classification_function_pre = classification_function_pre
         self.classification_function_post = classification_function_post
         
-        # Drifted features are the difference in relevant features between functions
         pre_features = self.FUNCTION_RELEVANT_FEATURES.get(classification_function_pre, set())
         post_features = self.FUNCTION_RELEVANT_FEATURES.get(classification_function_post, set())
         self._drifted_feature_indices = pre_features.symmetric_difference(post_features)
         
-        # Label encoders for categorical features
         self._label_encoders: Dict[str, LabelEncoder] = {}
         
-        # Scaler for normalization (fit once on pre-drift pool)
         self._scaler: Optional[StandardScaler] = None
         self._scaler_fitted = False
 
-        # Cached pools: (X_scaled, y) arrays
-        self._pre_pool: Optional[np.ndarray] = None   # shape (pool_size, n_features)
+        self._pre_pool: Optional[np.ndarray] = None
         self._pre_pool_y: Optional[np.ndarray] = None
         self._post_pool: Optional[np.ndarray] = None
         self._post_pool_y: Optional[np.ndarray] = None
@@ -99,11 +92,9 @@ class AgrawalDataGenerator(BaseDataGenerator):
         features = []
         for fname in self.FEATURE_NAMES:
             val = x[fname]
-            # Encode categorical features
             if fname in ['elevel', 'car', 'zipcode']:
                 if fname not in self._label_encoders:
                     self._label_encoders[fname] = LabelEncoder()
-                    # Pre-fit with possible values
                     if fname == 'elevel':
                         self._label_encoders[fname].fit([0, 1, 2, 3, 4])
                     elif fname == 'car':
@@ -113,7 +104,6 @@ class AgrawalDataGenerator(BaseDataGenerator):
                 try:
                     val = self._label_encoders[fname].transform([val])[0]
                 except ValueError:
-                    # Handle unseen values
                     val = 0
             features.append(val)
         features.append(y)
@@ -135,7 +125,6 @@ class AgrawalDataGenerator(BaseDataGenerator):
         if self._pre_pool is not None:
             return
 
-        # Pool large enough so each client can sample independently each round
         pool_size = max(self.n_samples_per_client * self.n_clients * 3, 20000)
 
         print(f"  Agrawal: generating pre-drift pool ({pool_size} samples, fn={self.classification_function_pre}) ...")
@@ -146,12 +135,10 @@ class AgrawalDataGenerator(BaseDataGenerator):
         X_post, y_post = self._generate_pool(
             self.classification_function_post, pool_size, stream_seed=self.seed + 999)
 
-        # Fit scaler on pre-drift pool
         self._scaler = StandardScaler()
         self._scaler.fit(X_pre)
         self._scaler_fitted = True
 
-        # Scale both pools
         self._pre_pool = self._scaler.transform(X_pre).astype(np.float32)
         self._pre_pool_y = y_pre
         self._post_pool = self._scaler.transform(X_post).astype(np.float32)
@@ -169,7 +156,7 @@ class AgrawalDataGenerator(BaseDataGenerator):
         round_num: int,
         t0: int,
         drifted_clients: Set[int],
-        drift_magnitude: float,  # Not used for Agrawal (concept switch is binary)
+        drift_magnitude: float,
     ) -> Dict[int, ClientDataset]:
         """
         Generate data for all clients for a given round.

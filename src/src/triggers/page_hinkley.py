@@ -18,7 +18,7 @@ class PHDetectionResult:
     ph_statistic: float
     cumulative_sum: float
     running_mean: float
-    detection_delay: Optional[int] = None  # If t0 is known
+    detection_delay: Optional[int] = None
 
 
 class PageHinkleyDetector:
@@ -41,7 +41,7 @@ class PageHinkleyDetector:
         delta: float = 0.005,
         lambda_: float = 50.0,
         warmup: int = 5,
-        direction: str = 'increase',  # 'increase', 'decrease', or 'both'
+        direction: str = 'increase',
     ):
         self.delta = delta
         self.lambda_ = lambda_
@@ -54,8 +54,8 @@ class PageHinkleyDetector:
         """Reset detector state."""
         self.n_samples = 0
         self.running_mean = 0.0
-        self.sum_increase = 0.0  # PH+ for detecting increase
-        self.sum_decrease = 0.0  # PH- for detecting decrease
+        self.sum_increase = 0.0
+        self.sum_decrease = 0.0
         self.min_ph_plus = float('inf')
         self.max_ph_minus = float('-inf')
         self.triggered = False
@@ -75,21 +75,16 @@ class PageHinkleyDetector:
         self.observations.append(value)
         self.n_samples += 1
         
-        # Update running mean
         self.running_mean += (value - self.running_mean) / self.n_samples
         
-        # Update cumulative sums
-        # For detecting increase in mean
         self.sum_increase += value - self.running_mean - self.delta
         self.min_ph_plus = min(self.min_ph_plus, self.sum_increase)
         ph_plus = self.sum_increase - self.min_ph_plus
         
-        # For detecting decrease in mean
         self.sum_decrease += self.running_mean - value - self.delta
         self.max_ph_minus = max(self.max_ph_minus, self.sum_decrease)
         ph_minus = self.max_ph_minus - self.sum_decrease
         
-        # Check for drift after warmup period
         if self.n_samples >= self.warmup and not self.triggered:
             if self.direction == 'increase' and ph_plus > self.lambda_:
                 self.triggered = True
@@ -193,7 +188,7 @@ class FeaturePageHinkley:
     
     def detect(
         self,
-        series: np.ndarray,  # Shape: (n_rounds, n_features)
+        series: np.ndarray,
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
         Run detection on complete feature series.

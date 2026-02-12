@@ -21,11 +21,11 @@ from dataclasses import dataclass
 class DeltaFIResult:
     """Result of Delta(FI) diagnosis."""
 
-    method: str  # 'sage', 'pfi', or 'shap'
-    delta_scores: np.ndarray  # |wmean_FI(trigger) - wmean_FI(prev)| per feature
-    feature_ranking: np.ndarray  # Indices sorted by delta (descending)
-    mean_trigger: np.ndarray  # Weighted mean FI at trigger round per feature
-    mean_prev: np.ndarray  # Weighted mean FI at previous round per feature
+    method: str
+    delta_scores: np.ndarray
+    feature_ranking: np.ndarray
+    mean_trigger: np.ndarray
+    mean_prev: np.ndarray
 
 
 def _weighted_nanmean(values: np.ndarray, weights: Optional[np.ndarray]) -> np.ndarray:
@@ -38,7 +38,7 @@ def _weighted_nanmean(values: np.ndarray, weights: Optional[np.ndarray]) -> np.n
     Returns:
         (n_features,) weighted mean
     """
-    mask = ~np.isnan(values)  # (C, F)
+    mask = ~np.isnan(values)
     if weights is None:
         return np.nanmean(values, axis=0)
     w = np.asarray(weights, dtype=np.float64)
@@ -69,8 +69,8 @@ class DeltaFIDiagnosis:
 
     def compute_delta_scores(
         self,
-        fi_matrix: np.ndarray,  # Shape: (n_rounds, n_clients, n_features)
-        client_weights: Optional[np.ndarray] = None,  # (n_clients,)
+        fi_matrix: np.ndarray,
+        client_weights: Optional[np.ndarray] = None,
     ) -> DeltaFIResult:
         """
         Compute delta scores for all features.
@@ -92,14 +92,11 @@ class DeltaFIDiagnosis:
                 f"Need at least 2 rounds for delta computation, got {n_rounds}"
             )
 
-        # Weighted mean across clients at trigger round (last) and previous round
         mean_trigger = _weighted_nanmean(fi_matrix[-1], client_weights)
         mean_prev = _weighted_nanmean(fi_matrix[-2], client_weights)
 
-        # Absolute delta
         delta_scores = np.abs(mean_trigger - mean_prev)
 
-        # Rank features by delta (descending)
         feature_ranking = np.argsort(delta_scores)[::-1]
 
         return DeltaFIResult(

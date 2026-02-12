@@ -16,10 +16,10 @@ class DiagnosticMetrics:
     """Metrics for evaluating a single diagnosis ranking."""
     
     method: str
-    hits_at_k: float  # 1 if any drifted feature in top K
-    precision_at_k: float  # |TopK ∩ S*| / K
-    recall_at_k: float  # |TopK ∩ S*| / |S*|
-    mrr: float  # 1 / (best rank of drifted feature)
+    hits_at_k: float
+    precision_at_k: float
+    recall_at_k: float
+    mrr: float
     k: int
     top_k_features: List[int] = field(default_factory=list)
     drifted_in_top_k: List[int] = field(default_factory=list)
@@ -54,33 +54,26 @@ def compute_metrics(
             k=k,
         )
     
-    # Top K features
     top_k = set(ranking[:k].tolist())
     
-    # Drifted features in top K
     drifted_in_top_k = top_k.intersection(ground_truth)
     
-    # Hits@K: 1 if any drifted feature in top K
     hits_at_k = 1.0 if len(drifted_in_top_k) > 0 else 0.0
     
-    # Precision@K: |TopK ∩ S*| / K
     precision_at_k = len(drifted_in_top_k) / k
     
-    # Recall@K: |TopK ∩ S*| / |S*|
     recall_at_k = len(drifted_in_top_k) / len(ground_truth)
     
-    # MRR: 1 / (best rank position of any drifted feature)
-    # Rank positions are 1-indexed
     best_rank = None
     for pos, feature in enumerate(ranking):
         if feature in ground_truth:
-            best_rank = pos + 1  # 1-indexed
+            best_rank = pos + 1
             break
     
     mrr = 1.0 / best_rank if best_rank is not None else 0.0
     
     return DiagnosticMetrics(
-        method='',  # To be set by caller
+        method='',
         hits_at_k=hits_at_k,
         precision_at_k=precision_at_k,
         recall_at_k=recall_at_k,
@@ -148,7 +141,6 @@ def aggregate_results(
     if not run_metrics:
         return {}
     
-    # Collect metrics by method
     method_metrics: Dict[str, List[DiagnosticMetrics]] = {}
     
     for run_result in run_metrics:
@@ -157,7 +149,6 @@ def aggregate_results(
                 method_metrics[method_name] = []
             method_metrics[method_name].append(metrics)
     
-    # Aggregate
     aggregated = {}
     
     for method_name, metrics_list in method_metrics.items():
@@ -253,17 +244,14 @@ def create_results_table(
             f"{metrics.mrr_mean:.3f}±{metrics.mrr_std:.3f}",
         ])
     
-    # Format table
     col_widths = [max(len(str(row[i])) for row in [headers] + rows) for i in range(len(headers))]
     
     lines = []
     
-    # Header
     header_line = ' | '.join(h.ljust(w) for h, w in zip(headers, col_widths))
     lines.append(header_line)
     lines.append('-' * len(header_line))
     
-    # Rows
     for row in rows:
         lines.append(' | '.join(str(cell).ljust(w) for cell, w in zip(row, col_widths)))
     

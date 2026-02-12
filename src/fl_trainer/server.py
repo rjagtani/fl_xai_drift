@@ -24,7 +24,6 @@ class FLServer:
         self.device = device or torch.device('cpu')
         self.model.to(self.device)
         
-        # Training history
         self.round_losses: List[float] = []
         self.round_accuracies: List[float] = []
         self.client_losses: List[Dict[int, float]] = []
@@ -53,19 +52,16 @@ class FLServer:
         if not results:
             return self.get_parameters(), {}
         
-        # Extract parameters and weights (number of samples)
         all_params = [params for params, _, _ in results]
         weights = np.array([n_samples for _, n_samples, _ in results], dtype=np.float32)
-        weights = weights / weights.sum()  # Normalize
+        weights = weights / weights.sum()
         
-        # Weighted average of parameters
         aggregated_params = []
         for param_idx in range(len(all_params[0])):
             layer_params = np.array([params[param_idx] for params in all_params])
             weighted_avg = np.average(layer_params, axis=0, weights=weights)
             aggregated_params.append(weighted_avg)
         
-        # Aggregate metrics
         total_samples = sum(n_samples for _, n_samples, _ in results)
         avg_loss = sum(metrics.get('loss', 0) * n_samples for _, n_samples, metrics in results) / total_samples
         
@@ -75,7 +71,6 @@ class FLServer:
             'n_clients': len(results),
         }
         
-        # Update global model
         self.set_parameters(aggregated_params)
         
         return aggregated_params, aggregated_metrics
@@ -98,16 +93,13 @@ class FLServer:
         
         total_samples = sum(n_samples for _, n_samples, _ in results)
         
-        # Weighted average loss
         agg_loss = sum(loss * n_samples for loss, n_samples, _ in results) / total_samples
         
-        # Weighted average accuracy
         agg_accuracy = sum(
             metrics.get('accuracy', 0) * n_samples 
             for _, n_samples, metrics in results
         ) / total_samples
         
-        # Per-client losses
         client_losses = {
             metrics['client_id']: loss 
             for loss, _, metrics in results 
@@ -122,7 +114,6 @@ class FLServer:
             'client_losses': client_losses,
         }
         
-        # Store history
         self.round_losses.append(agg_loss)
         self.round_accuracies.append(agg_accuracy)
         self.client_losses.append(client_losses)

@@ -40,12 +40,12 @@ class DriftDetectionResult:
     """Result from drift detection."""
     triggered: bool
     trigger_round: Optional[int]
-    detection_delay: Optional[int]  # trigger_round - t0
-    method: str  # 'rds', 'page_hinkley', 'cusum'
+    detection_delay: Optional[int]
+    method: str
     score: Optional[float] = None
     all_scores: Optional[List[float]] = None
-    threshold: Optional[float] = None  # Final threshold (for RDS)
-    threshold_series: Optional[List[float]] = None  # Dynamic threshold over time
+    threshold: Optional[float] = None
+    threshold_series: Optional[List[float]] = None
 
 
 def compute_rds(
@@ -72,7 +72,6 @@ def compute_rds(
         u_weights=pre_weights, v_weights=post_weights,
     )
     if pre_weights is not None:
-        # Weighted std
         w = np.asarray(pre_weights, dtype=np.float64)
         w = w / w.sum()
         wmean = np.average(pre_flat, weights=w)
@@ -99,9 +98,9 @@ class RDSDetector:
         calibration_start: int = 41,
         calibration_end: int = 100,
         window_size: int = 5,
-        alpha: float = 3.4,  # Bonferroni-derived k (for N=200, cal_end=100, p=0.05)
+        alpha: float = 3.4,
         min_instances: int = 5,
-        confirm_consecutive: int = 3,  # Require N consecutive triggers
+        confirm_consecutive: int = 3,
         require_loss_increase: bool = True,
         use_fixed_threshold: bool = True,
     ):
@@ -109,7 +108,7 @@ class RDSDetector:
         self.calibration_start = calibration_start
         self.calibration_end = calibration_end
         self.window_size = window_size
-        self.alpha = alpha  # Bonferroni multiplier k = z_{1−p/M}
+        self.alpha = alpha
         self.min_instances = min_instances
         self.confirm_consecutive = confirm_consecutive
         self.require_loss_increase = require_loss_increase
@@ -118,7 +117,7 @@ class RDSDetector:
         self.rds_scores: List[float] = []
         self.calibration_scores: List[float] = []
         self.threshold: Optional[float] = None
-        self.threshold_series: List[float] = []  # Track threshold over time for plotting
+        self.threshold_series: List[float] = []
         self.triggered = False
         self.trigger_round: Optional[int] = None
         self.trigger_score: Optional[float] = None
@@ -135,10 +134,10 @@ class RDSDetector:
     
     def detect(
         self,
-        loss_matrix: np.ndarray,  # (n_rounds, n_clients)
-        aggregated_loss: Optional[np.ndarray] = None,  # (n_rounds,) global loss per round
+        loss_matrix: np.ndarray,
+        aggregated_loss: Optional[np.ndarray] = None,
         t0: Optional[int] = None,
-        client_weights: Optional[np.ndarray] = None,  # (n_clients,) probability weights
+        client_weights: Optional[np.ndarray] = None,
     ) -> DriftDetectionResult:
         """
         Run RDS detection on loss matrix.
@@ -165,71 +164,55 @@ class RDSDetector:
         max_rds = 0.0
         max_rds_round = None
         
-        # Track consecutive threshold exceedances
         consecutive_count = 0
         streak_start_round = None
-        frozen_reference_window = None  # Frozen window for consecutive checks
-        frozen_reference_weights = None  # Corresponding weights for frozen window
+        frozen_reference_window = None
+        frozen_reference_weights = None
         
-        # Pre-compute weight vectors for the Wasserstein calls
-        # post_weights: one weight per client (current round)
-        post_w = client_weights  # None or (n_clients,)
+        post_w = client_weights
 
         for round_idx in range(self.warmup_rounds, n_rounds):
-            # Current round's loss across clients
             current_loss = loss_matrix[round_idx, :]
             
-            # Reference window: use frozen window if in a streak, otherwise sliding window
             if frozen_reference_window is not None:
-                # In a streak: compare against frozen pre-drift baseline
                 pre_window = frozen_reference_window
                 pre_w = frozen_reference_weights
             else:
-                # Normal: sliding window
                 start_idx = max(0, round_idx - self.window_size)
                 pre_window = loss_matrix[start_idx:round_idx, :].flatten()
                 n_past = round_idx - start_idx
                 pre_w = np.tile(client_weights, n_past) if client_weights is not None else None
             
-            # Compute RDS (client-weighted when weights provided)
             rds = compute_rds(pre_window, current_loss,
                               pre_weights=pre_w, post_weights=post_w)
             self.rds_scores.append(rds)
             
-            # Track max
             if rds > max_rds:
                 max_rds = rds
                 max_rds_round = round_idx
             
-            # Collect calibration scores during calibration period
             if self.calibration_start <= round_idx <= self.calibration_end:
                 self.calibration_scores.append(rds)
-                self.threshold_series.append(None)  # No threshold during calibration
-                continue  # Don't trigger during calibration
+                self.threshold_series.append(None)
+                continue
             
-            # Set threshold from calibration (first round after calibration)
             if self.threshold is None and round_idx > self.calibration_end:
                 if len(self.calibration_scores) >= self.min_instances:
                     cal_mu = np.mean(self.calibration_scores)
                     cal_sigma = np.sqrt(max(np.var(self.calibration_scores, ddof=1), 1e-10))
                     self.threshold = cal_mu + self.alpha * cal_sigma
                 else:
-                    # Fallback: use all collected RDS scores
                     cal_mu = np.mean(self.rds_scores)
                     cal_sigma = np.sqrt(max(np.var(self.rds_scores, ddof=1), 1e-10)) if len(self.rds_scores) > 1 else 0.001
                     self.threshold = cal_mu + self.alpha * cal_sigma
             
-            # Fixed threshold every round (set once from calibration, never updated)
             if self.threshold is not None and round_idx > self.calibration_end:
                 self.threshold_series.append(self.threshold)
             
-            # Check for drift (only after calibration, only if not yet triggered)
             if self.threshold is not None and round_idx > self.calibration_end:
                 if not self.triggered:
                     if rds > self.threshold:
-                        # Threshold exceeded - check if we should start/continue a streak
                         if consecutive_count == 0:
-                            # Starting new streak: require loss increase if configured
                             loss_increasing = True
                             if self.require_loss_increase and round_idx > 0:
                                 loss_increasing = aggregated_loss[round_idx] > aggregated_loss[round_idx - 1]
@@ -237,7 +220,6 @@ class RDSDetector:
                             if loss_increasing:
                                 streak_start_round = round_idx
                                 consecutive_count = 1
-                                # Freeze reference window: use pre-drift baseline for subsequent checks
                                 start_idx = max(0, round_idx - self.window_size)
                                 frozen_reference_window = loss_matrix[start_idx:round_idx, :].flatten().copy()
                                 n_frozen = round_idx - start_idx
@@ -245,17 +227,13 @@ class RDSDetector:
                                     np.tile(client_weights, n_frozen) if client_weights is not None else None
                                 )
                         else:
-                            # Continuing streak: just need RDS above threshold
                             consecutive_count += 1
                         
-                        # Check if we have enough consecutive triggers
                         if consecutive_count >= self.confirm_consecutive:
                             self.triggered = True
-                            self.trigger_round = streak_start_round  # First round of streak
+                            self.trigger_round = streak_start_round
                             self.trigger_score = rds
-                            # Continue computing -- do NOT break
                     else:
-                        # Reset streak and unfreeze reference window
                         consecutive_count = 0
                         streak_start_round = None
                         frozen_reference_window = None
@@ -294,9 +272,9 @@ class CUSUMDetector:
         calibration_end: int = 100,
         confirm_consecutive: int = 3,
         min_calibration_samples: int = 10,
-        mode: str = "up",  # Detect increases in loss (drift causes loss to go up)
-        cusum_k_ref: float = 0.5,  # Reference value in σ units (detect 1σ shift)
-        cusum_h: float = 7.0,  # Decision interval in σ units (ARL₀ ≈ 3000)
+        mode: str = "up",
+        cusum_k_ref: float = 0.5,
+        cusum_h: float = 7.0,
     ):
         self.calibration_start = calibration_start
         self.calibration_end = calibration_end
@@ -339,45 +317,36 @@ class CUSUMDetector:
         for round_idx in range(warmup_rounds, n_rounds):
             x = loss_series[round_idx]
             
-            # Phase 1: Calibration - collect raw loss values
             if round_idx <= self.calibration_end:
                 if round_idx >= self.calibration_start:
                     self.calibration_losses.append(x)
                 continue
             
-            # Initialize River detector after calibration (ARL-based design)
             if self.detector is None and round_idx > self.calibration_end:
                 if len(self.calibration_losses) >= self.min_calibration_samples:
                     cal_std = np.std(self.calibration_losses, ddof=1)
                     if cal_std < 1e-10:
                         cal_std = 0.001
-                    # ARL-based: delta = k_ref * σ₀, threshold = h * σ₀
                     self.tuned_delta = self.cusum_k_ref * cal_std
                     self.tuned_threshold = self.cusum_h * cal_std
                 else:
-                    # Fallback to defaults scaled by a nominal σ
                     self.tuned_delta = self.cusum_k_ref * 0.01
                     self.tuned_threshold = self.cusum_h * 0.01
                 
-                # Create River PageHinkley with ARL-tuned parameters
                 self.detector = RiverPageHinkley(
-                    min_instances=1,  # We handle warmup ourselves
+                    min_instances=1,
                     delta=self.tuned_delta,
                     threshold=self.tuned_threshold,
-                    alpha=0.9999,  # Minimal forgetting (≈ classical CUSUM)
+                    alpha=0.9999,
                     mode=self.mode,
                 )
             
-            # Phase 2: Detection
-            # Note: River's drift_detected is only True for one update, then resets
-            # So we trigger on first detection (no k-consecutive for River)
             if self.detector is not None:
                 self.detector.update(x)
                 
                 if self.detector.drift_detected and not self.triggered:
                     self.triggered = True
                     self.trigger_round = round_idx
-                    # Continue computing -- do NOT break
         
         delay = None
         if self.trigger_round is not None and t0 is not None:
@@ -407,7 +376,7 @@ class PageHinkleyDetector:
         calibration_end: int = 100,
         confirm_consecutive: int = 3,
         min_calibration_samples: int = 10,
-        mode: str = "both",  # Two-sided detection
+        mode: str = "both",
         cusum_k_ref: float = 0.5,
         cusum_h: float = 7.0,
     ):
@@ -452,26 +421,22 @@ class PageHinkleyDetector:
         for round_idx in range(warmup_rounds, n_rounds):
             x = loss_series[round_idx]
             
-            # Phase 1: Calibration - collect raw loss values
             if round_idx <= self.calibration_end:
                 if round_idx >= self.calibration_start:
                     self.calibration_losses.append(x)
                 continue
             
-            # Initialize River detector after calibration (ARL-based design)
             if self.detector is None and round_idx > self.calibration_end:
                 if len(self.calibration_losses) >= self.min_calibration_samples:
                     cal_std = np.std(self.calibration_losses, ddof=1)
                     if cal_std < 1e-10:
                         cal_std = 0.001
-                    # ARL-based: delta = k_ref * σ₀, threshold = h * σ₀
                     self.tuned_delta = self.cusum_k_ref * cal_std
                     self.tuned_threshold = self.cusum_h * cal_std
                 else:
                     self.tuned_delta = self.cusum_k_ref * 0.01
                     self.tuned_threshold = self.cusum_h * 0.01
                 
-                # Create River PageHinkley with ARL-tuned parameters
                 self.detector = RiverPageHinkley(
                     min_instances=1,
                     delta=self.tuned_delta,
@@ -480,9 +445,6 @@ class PageHinkleyDetector:
                     mode=self.mode,
                 )
             
-            # Phase 2: Detection
-            # Note: River's drift_detected is only True for one update, then resets
-            # So we trigger on first detection (no k-consecutive for River)
             if self.detector is not None:
                 self.detector.update(x)
                 
@@ -517,9 +479,9 @@ class ADWINDetector:
         self,
         calibration_start: int = 41,
         calibration_end: int = 100,
-        alpha: float = 3.4,  # Bonferroni k
-        delta: float = 0.01,  # ADWIN confidence parameter
-        window_size: int = 20,  # Size of comparison windows
+        alpha: float = 3.4,
+        delta: float = 0.01,
+        window_size: int = 20,
         confirm_consecutive: int = 3,
     ):
         self.calibration_start = calibration_start
@@ -552,7 +514,6 @@ class ADWINDetector:
             w0 = window[:cut]
             w1 = window[cut:]
             diff = abs(np.mean(w0) - np.mean(w1))
-            # Normalize by pooled std
             pooled_std = np.sqrt((np.var(w0) * len(w0) + np.var(w1) * len(w1)) / n)
             if pooled_std > 1e-10:
                 diff = diff / pooled_std
@@ -582,30 +543,24 @@ class ADWINDetector:
         n_rounds = len(aggregated_loss)
         
         calibration_stats = []
-        calibration_rounds = []  # Track which rounds stats came from
+        calibration_rounds = []
         consecutive_count = 0
         streak_start_round = None
-        frozen_base_window = None  # Frozen baseline for consecutive checks
+        frozen_base_window = None
         
         for r in range(warmup_rounds + self.window_size, n_rounds):
-            # Get window of recent losses - use frozen baseline if in streak
             if frozen_base_window is not None:
-                # In a streak: compare current point against frozen baseline
-                # Append current value(s) to the frozen baseline for cut-point analysis
                 window = np.concatenate([frozen_base_window, aggregated_loss[streak_start_round:r + 1]])
             else:
                 window = aggregated_loss[r - self.window_size:r + 1]
             
-            # Compute ADWIN statistic
             stat = self._compute_adwin_statistic(window)
             self.statistic_series.append(stat)
             
-            # Collect calibration statistics (full calibration window)
             if self.calibration_start <= r <= self.calibration_end:
                 calibration_stats.append(stat)
-                continue  # Don't trigger during calibration
+                continue
             
-            # Set threshold after calibration
             if self.threshold is None and r > self.calibration_end:
                 if len(calibration_stats) >= 5:
                     cal_mu = np.mean(calibration_stats)
@@ -614,16 +569,14 @@ class ADWINDetector:
                         cal_sigma = 0.001
                     self.threshold = cal_mu + self.alpha * cal_sigma
                 else:
-                    self.threshold = 2.0  # Fallback
+                    self.threshold = 2.0
             
-            # Detection with k-consecutive
             if self.threshold is not None and r > self.calibration_end:
                 exceeded = stat > self.threshold
                 if exceeded:
                     if consecutive_count == 0:
                         streak_start_round = r
                         consecutive_count = 1
-                        # Freeze baseline window at pre-drift state
                         frozen_base_window = aggregated_loss[r - self.window_size:r].copy()
                     else:
                         consecutive_count += 1
@@ -632,7 +585,6 @@ class ADWINDetector:
                         self.trigger_round = streak_start_round
                         break
                 else:
-                    # Reset streak and unfreeze
                     consecutive_count = 0
                     streak_start_round = None
                     frozen_base_window = None
@@ -663,8 +615,8 @@ class KSWINDetector:
         self,
         calibration_start: int = 41,
         calibration_end: int = 100,
-        alpha: float = 3.4,  # Bonferroni k
-        window_size: int = 20,  # Size of each window for comparison
+        alpha: float = 3.4,
+        window_size: int = 20,
         confirm_consecutive: int = 3,
     ):
         self.calibration_start = calibration_start
@@ -691,7 +643,6 @@ class KSWINDetector:
         if len(ref_window) < 3 or len(test_window) < 3:
             return 0.0
         
-        # KS test returns (statistic, p-value)
         ks_stat, _ = stats.ks_2samp(ref_window, test_window)
         return ks_stat
     
@@ -719,49 +670,41 @@ class KSWINDetector:
         consecutive_count = 0
         streak_start_round = None
         
-        # Need 2x window_size for comparison
         start_round = warmup_rounds + 2 * self.window_size
         
-        frozen_ref_window = None  # Frozen reference window for consecutive checks
+        frozen_ref_window = None
         
         for r in range(start_round, n_rounds):
-            # Reference window: use frozen if in a streak, otherwise use sliding older data
             if frozen_ref_window is not None:
                 ref_window = frozen_ref_window
             else:
                 ref_window = aggregated_loss[r - 2 * self.window_size:r - self.window_size]
             
-            # Test window: recent data INCLUDING current round
             test_window = aggregated_loss[r - self.window_size + 1:r + 1]
             
-            # Compute KS statistic
             ks_stat = self._compute_ks_statistic(ref_window, test_window)
             self.ks_series.append(ks_stat)
             
-            # Collect calibration statistics (full calibration window)
             if self.calibration_start <= r <= self.calibration_end:
                 calibration_stats.append(ks_stat)
-                continue  # Don't trigger during calibration
+                continue
             
-            # Set threshold after calibration
             if self.threshold is None and r > self.calibration_end:
                 if len(calibration_stats) >= 5:
                     cal_mu = np.mean(calibration_stats)
                     cal_sigma = np.std(calibration_stats, ddof=1)
                     if cal_sigma < 1e-10:
-                        cal_sigma = 0.05  # KS stats bounded [0,1]
+                        cal_sigma = 0.05
                     self.threshold = cal_mu + self.alpha * cal_sigma
                 else:
-                    self.threshold = 0.5  # Fallback
+                    self.threshold = 0.5
             
-            # Detection with k-consecutive
             if self.threshold is not None and r > self.calibration_end:
                 exceeded = ks_stat > self.threshold
                 if exceeded:
                     if consecutive_count == 0:
                         streak_start_round = r
                         consecutive_count = 1
-                        # Freeze reference window at pre-drift state
                         frozen_ref_window = aggregated_loss[r - 2 * self.window_size:r - self.window_size].copy()
                     else:
                         consecutive_count += 1
@@ -770,7 +713,6 @@ class KSWINDetector:
                         self.trigger_round = streak_start_round
                         break
                 else:
-                    # Reset streak and unfreeze reference window
                     consecutive_count = 0
                     streak_start_round = None
                     frozen_ref_window = None
@@ -804,20 +746,19 @@ class MultiMethodDetector:
         warmup_rounds: int = 40,
         calibration_start: int = 41,
         calibration_end: int = 100,
-        n_rounds: int = 200,  # Total rounds (for Bonferroni M calculation)
+        n_rounds: int = 200,
         rds_window: int = 5,
-        rds_alpha: float = None,  # If None, computed via Bonferroni
+        rds_alpha: float = None,
         confirm_consecutive: int = 3,
         min_instances: int = 5,
-        cusum_k_ref: float = 0.5,  # CUSUM/PH reference value (σ units)
-        cusum_h: float = 7.0,  # CUSUM/PH decision interval (σ units)
-        fwer_p: float = 0.05,  # FWER target for Bonferroni
+        cusum_k_ref: float = 0.5,
+        cusum_h: float = 7.0,
+        fwer_p: float = 0.05,
     ):
         self.warmup_rounds = warmup_rounds
         self.calibration_start = calibration_start
         self.calibration_end = calibration_end
         
-        # Compute Bonferroni k if not provided
         if rds_alpha is None:
             rds_alpha = bonferroni_k(n_rounds, calibration_end, fwer_p)
         
@@ -832,7 +773,6 @@ class MultiMethodDetector:
             use_fixed_threshold=True,
         )
         
-        # CUSUM using River's PageHinkley (mode="up" for loss increases)
         self.cusum = CUSUMDetector(
             calibration_start=calibration_start,
             calibration_end=calibration_end,
@@ -842,7 +782,6 @@ class MultiMethodDetector:
             cusum_h=cusum_h,
         )
         
-        # Page-Hinkley using River's implementation (mode="both" for two-sided)
         self.ph = PageHinkleyDetector(
             calibration_start=calibration_start,
             calibration_end=calibration_end,
@@ -896,20 +835,15 @@ class MultiMethodDetector:
         
         results = {}
         
-        # RDS detection (distributional, client-weighted)
         results['rds'] = self.rds.detect(loss_matrix, aggregated_loss, t0,
                                          client_weights=client_weights)
         
-        # CUSUM detection (σ-normalized cumulative sum)
         results['cusum'] = self.cusum.detect(aggregated_loss, self.warmup_rounds, t0)
         
-        # Page-Hinkley detection (σ-normalized)
         results['page_hinkley'] = self.ph.detect(aggregated_loss, self.warmup_rounds, t0)
         
-        # ADWIN detection (adaptive windowing)
         results['adwin'] = self.adwin.detect(aggregated_loss, self.warmup_rounds, t0)
         
-        # KSWIN detection (KS test on sliding windows)
         results['kswin'] = self.kswin.detect(aggregated_loss, self.warmup_rounds, t0)
         
         return results

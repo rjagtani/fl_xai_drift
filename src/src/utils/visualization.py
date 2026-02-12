@@ -44,7 +44,6 @@ def plot_training_curves(
     
     rounds = range(1, len(global_loss) + 1)
     
-    # Global loss
     ax1.plot(rounds, global_loss, 'b-', linewidth=2, label='Global Loss')
     ax1.axvline(x=t0, color='r', linestyle='--', linewidth=2, label=f'Drift Onset (t0={t0})')
     if trigger_round:
@@ -56,7 +55,6 @@ def plot_training_curves(
     ax1.legend()
     ax1.grid(True, alpha=0.3)
     
-    # Client losses heatmap
     im = ax2.imshow(client_loss_matrix.T, aspect='auto', cmap='YlOrRd')
     ax2.axvline(x=t0-1, color='white', linestyle='--', linewidth=2)
     ax2.set_xlabel('Round')
@@ -102,7 +100,7 @@ def plot_fi_heatmap(
         axes = [axes]
     
     for i, (ax, fname) in enumerate(zip(axes, feature_names)):
-        data = fi_matrix[:, :, i].T  # (n_clients, n_rounds)
+        data = fi_matrix[:, :, i].T
         
         im = ax.imshow(data, aspect='auto', cmap='RdBu_r')
         ax.set_xlabel('Round')
@@ -153,7 +151,6 @@ def plot_diagnosis_results(
     for ax, method in zip(axes, methods):
         ranking = rankings[method]
         
-        # Create ranking visualization
         colors = ['red' if i in ground_truth else 'blue' for i in ranking]
         
         y_pos = np.arange(n_features)
@@ -164,9 +161,8 @@ def plot_diagnosis_results(
         ax.set_yticklabels(feature_labels)
         ax.set_xlabel('Importance Rank')
         ax.set_title(method.replace('_', ' ').title())
-        ax.invert_yaxis()  # Top feature at top
+        ax.invert_yaxis()
         
-        # Add legend
         ax.barh([], [], color='red', alpha=0.7, label='Drifted (GT)')
         ax.barh([], [], color='blue', alpha=0.7, label='Non-drifted')
         ax.legend(loc='lower right')
@@ -222,7 +218,6 @@ def plot_rds_scores(
     ax.set_xticklabels(feature_names, rotation=45, ha='right')
     ax.legend()
     
-    # Highlight ground truth features
     for idx in ground_truth:
         ax.axvline(x=idx, color='red', linestyle='--', alpha=0.3)
     
@@ -274,14 +269,12 @@ def plot_loss_and_rds_detection(
     n_rounds = len(loss_series)
     rounds = range(1, n_rounds + 1)
     
-    # Top: Loss over time
     ax1.plot(rounds, loss_series, 'b-', linewidth=1.5, label='Global Loss')
     ax1.axvline(x=t0, color='r', linestyle='--', linewidth=2, label=f'Drift Onset (t0={t0})')
     if trigger_round:
         ax1.axvline(x=trigger_round, color='g', linestyle=':', linewidth=2, 
                    label=f'Trigger (t={trigger_round})')
     
-    # Shade calibration period
     ax1.axvspan(calibration_start, calibration_end, alpha=0.15, color='orange', 
                 label='Calibration Period')
     
@@ -290,22 +283,17 @@ def plot_loss_and_rds_detection(
     ax1.legend(loc='upper right')
     ax1.grid(True, alpha=0.3)
     
-    # Bottom: RDS scores over time
     if rds_scores and len(rds_scores) > 0:
-        # RDS scores start after warmup
         rds_rounds = list(range(warmup_rounds + 1, warmup_rounds + 1 + len(rds_scores)))
         ax2.plot(rds_rounds, rds_scores, 'purple', linewidth=1.5, label='RDS Score')
         
-        # Plot dynamic threshold series if available
         if threshold_series and len(threshold_series) > 0:
-            # Filter out None values (calibration period)
             valid_thresholds = [(r, t) for r, t in zip(rds_rounds, threshold_series) if t is not None]
             if valid_thresholds:
                 thresh_rounds, thresh_values = zip(*valid_thresholds)
                 ax2.plot(thresh_rounds, thresh_values, 'orange', linestyle='--', linewidth=2,
                         label='Dynamic Threshold (EMA)')
         elif threshold is not None:
-            # Fallback: flat threshold line
             ax2.axhline(y=threshold, color='orange', linestyle='--', linewidth=2,
                        label=f'Threshold ({threshold:.4f})')
         
@@ -313,7 +301,6 @@ def plot_loss_and_rds_detection(
         if trigger_round:
             ax2.axvline(x=trigger_round, color='g', linestyle=':', linewidth=2)
         
-        # Shade calibration period
         ax2.axvspan(calibration_start, calibration_end, alpha=0.15, color='orange')
         
         ax2.set_ylabel('RDS Score')
@@ -335,20 +322,20 @@ def plot_loss_and_rds_detection(
 
 
 def plot_fi_and_rds_detection(
-    fi_matrix: np.ndarray,  # Shape: (n_rounds, n_clients, n_features)
-    rds_series: np.ndarray,  # Shape: (n_rds_rounds, n_features)
-    rds_rounds: List[int],  # Round numbers for RDS values
-    diagnosis_rounds: List[int],  # All diagnosis round numbers
-    thresholds: np.ndarray,  # Shape: (n_features,) - calibrated threshold per feature
+    fi_matrix: np.ndarray,
+    rds_series: np.ndarray,
+    rds_rounds: List[int],
+    diagnosis_rounds: List[int],
+    thresholds: np.ndarray,
     feature_names: List[str],
     method_name: str,
-    ground_truth: set,  # Indices of ground truth drifted features
-    trigger_round: int,  # The trigger round
+    ground_truth: set,
+    trigger_round: int,
     calibration_mu: Optional[np.ndarray] = None,
     calibration_sigma: Optional[np.ndarray] = None,
     save_path: Optional[Path] = None,
     figsize: tuple = (16, 10),
-    top_k: int = 10,  # Show only top-k features for clarity
+    top_k: int = 10,
 ):
     """
     Plot FI values and FI-based RDS detection scores over diagnosis rounds.
@@ -378,19 +365,15 @@ def plot_fi_and_rds_detection(
     n_rounds, n_clients, n_features = fi_matrix.shape
     n_rds_rounds = len(rds_series)
     
-    # Compute mean FI across clients per round
-    mean_fi = np.nanmean(fi_matrix, axis=1)  # Shape: (n_rounds, n_features)
+    mean_fi = np.nanmean(fi_matrix, axis=1)
     
-    # Select top-k features by final RDS score
     final_rds = rds_series[-1] if len(rds_series) > 0 else np.zeros(n_features)
     top_k_indices = np.argsort(final_rds)[::-1][:top_k]
     
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=figsize, sharex=False)
     
-    # Color map for features
     colors = plt.cm.tab10(np.linspace(0, 1, top_k))
     
-    # Top: Mean FI values over diagnosis rounds
     for i, feat_idx in enumerate(top_k_indices):
         fname = feature_names[feat_idx] if feat_idx < len(feature_names) else f'F{feat_idx}'
         is_drifted = feat_idx in ground_truth
@@ -409,7 +392,6 @@ def plot_fi_and_rds_detection(
     ax1.grid(True, alpha=0.3)
     ax1.set_xlabel('Round')
     
-    # Bottom: RDS scores over rounds with threshold
     if len(rds_series) > 0:
         for i, feat_idx in enumerate(top_k_indices):
             fname = feature_names[feat_idx] if feat_idx < len(feature_names) else f'F{feat_idx}'
@@ -422,14 +404,12 @@ def plot_fi_and_rds_detection(
                     markersize=5, linewidth=1.5,
                     label=f'{fname}: thresh={thresholds[feat_idx]:.2f}')
             
-            # Plot threshold as horizontal line for this feature
             ax2.axhline(y=thresholds[feat_idx], color=colors[i], 
                        linestyle=':', alpha=0.5, linewidth=1)
         
         ax2.axvline(x=trigger_round, color='g', linestyle=':', linewidth=2)
         
-        # Mark calibration rounds (before trigger)
-        calibration_rounds = rds_rounds[:-1]  # All but last
+        calibration_rounds = rds_rounds[:-1]
         if len(calibration_rounds) > 0:
             ax2.axvspan(min(calibration_rounds), max(calibration_rounds), 
                        alpha=0.1, color='orange', label='Calibration')
@@ -468,11 +448,9 @@ def generate_experiment_report(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    # Plot training curves if available
     if 'training' in results:
         training = results['training']
         if 'global_loss_series' in training:
-            # This would require client_loss_matrix too
             pass
     
     print(f"Report generated in: {output_dir}")

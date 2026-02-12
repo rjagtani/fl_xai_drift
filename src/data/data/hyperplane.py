@@ -9,10 +9,6 @@ from sklearn.model_selection import train_test_split
 
 from .base import BaseDataGenerator, ClientDataset
 
-# Fixed seed for Hyperplane coefficient generation.
-# seed=123 gives weights approx [0.4, 0.7, 4.0, 1.2, 10.1] -- x4 always dominates.
-# This is separated from the experiment seed so that feature importance rankings
-# are stable across experiments while data sampling varies with the experiment seed.
 HYPERPLANE_COEFF_SEED = 123
 
 
@@ -52,13 +48,9 @@ class HyperplaneDataGenerator(BaseDataGenerator):
         self.noise_percentage = noise_percentage
         self.sigma = sigma
         
-        # River's Hyperplane drifts the FIRST n_drift_features features (x0, x1).
-        # With HYPERPLANE_COEFF_SEED=123 baseline: w approx [0.4, 0.7, 4.0, 1.2, 10.1]
-        # x4 is the most important feature; x0/x1 are the ones whose coefficients rotate.
-        self._drifted_feature_indices = set(range(n_drift_features))  # {0, 1}
+        self._drifted_feature_indices = set(range(n_drift_features))
         
-        # Pre-generated data pools (lazy init)
-        self._baseline_pool: Optional[np.ndarray] = None  # (N_total, n_features+1)
+        self._baseline_pool: Optional[np.ndarray] = None
         self._drifted_pools: Dict[float, np.ndarray] = {}
     
     def _generate_pool(self, mag_change: float, n_total: int) -> np.ndarray:
@@ -134,7 +126,6 @@ class HyperplaneDataGenerator(BaseDataGenerator):
         """
         is_drift_phase = round_num > t0
         
-        # Ensure pools exist (generate once, reuse across rounds)
         pool_size = max(self.n_samples_per_client * 20, 10000)
         baseline_pool = self._get_baseline_pool(pool_size)
         

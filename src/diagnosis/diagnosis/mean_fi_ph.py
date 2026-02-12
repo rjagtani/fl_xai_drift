@@ -15,11 +15,11 @@ from ..triggers.page_hinkley import FeaturePageHinkley
 class MeanFIPHResult:
     """Result of Mean(FI)+PH diagnosis."""
     
-    method: str  # 'sage', 'pfi', or 'shap'
-    ph_scores: np.ndarray  # PH statistics per feature
-    feature_ranking: np.ndarray  # Indices sorted by PH score (descending)
-    triggered_features: np.ndarray  # Boolean array of triggered features
-    mean_series: np.ndarray  # Mean FI time series (n_rounds, n_features)
+    method: str
+    ph_scores: np.ndarray
+    feature_ranking: np.ndarray
+    triggered_features: np.ndarray
+    mean_series: np.ndarray
 
 
 class MeanFIPHDiagnosis:
@@ -47,7 +47,7 @@ class MeanFIPHDiagnosis:
     
     def compute_mean_series(
         self,
-        fi_matrix: np.ndarray,  # Shape: (n_rounds, n_clients, n_features)
+        fi_matrix: np.ndarray,
     ) -> np.ndarray:
         """
         Compute mean FI per feature across clients for each round.
@@ -75,10 +75,8 @@ class MeanFIPHDiagnosis:
         """
         n_rounds, n_clients, n_features = fi_matrix.shape
         
-        # Compute mean series
         mean_series = self.compute_mean_series(fi_matrix)
         
-        # Create per-feature PH detectors
         feature_ph = FeaturePageHinkley(
             n_features=n_features,
             delta=self.ph_delta,
@@ -86,14 +84,12 @@ class MeanFIPHDiagnosis:
             warmup=self.warmup,
         )
         
-        # Run detection
         triggered, ph_scores = feature_ph.detect(mean_series)
         
-        # Rank features by PH score (descending)
         feature_ranking = np.argsort(ph_scores)[::-1]
         
         return MeanFIPHResult(
-            method='',  # To be set by caller
+            method='',
             ph_scores=ph_scores,
             feature_ranking=feature_ranking,
             triggered_features=triggered,
@@ -133,7 +129,7 @@ class MeanFIPHWithVariance(MeanFIPHDiagnosis):
     def compute_combined_score(
         self,
         fi_matrix: np.ndarray,
-        alpha: float = 0.5,  # Weight for PH score vs variance score
+        alpha: float = 0.5,
     ) -> np.ndarray:
         """
         Compute combined score using both PH and variance.
@@ -147,18 +143,15 @@ class MeanFIPHWithVariance(MeanFIPHDiagnosis):
         """
         n_rounds, n_clients, n_features = fi_matrix.shape
         
-        # Get PH scores
         ph_result = self.compute_ph_scores(fi_matrix)
         ph_scores_norm = ph_result.ph_scores / (np.max(ph_result.ph_scores) + 1e-8)
         
-        # Compute variance change
         mid_point = n_rounds // 2
         early_var = np.nanvar(fi_matrix[:mid_point], axis=(0, 1))
         late_var = np.nanvar(fi_matrix[mid_point:], axis=(0, 1))
         var_change = np.abs(late_var - early_var) / (early_var + 1e-8)
         var_scores_norm = var_change / (np.max(var_change) + 1e-8)
         
-        # Combined score
         combined = alpha * ph_scores_norm + (1 - alpha) * var_scores_norm
         
         return combined

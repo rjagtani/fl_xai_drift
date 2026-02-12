@@ -30,27 +30,21 @@ except ImportError:
     PLOTTING_AVAILABLE = False
 
 
-# Display names for experiment keys (dataset + drift type)
 EXP_DISPLAY = {
     'fed_heart_sudden': 'FedHeart (Sudden)',
-    'agrawal_recurring': 'Agrawal (Recurring)',
     'hyperplane_gradual': 'Hyperplane (Gradual)',
     'hyperplane_gradual_low': 'Hyperplane (Gradual-Low)',
     'hyperplane_gradual_vlow': 'Hyperplane (Gradual-VLow)',
     'agrawal_sudden': 'Agrawal (Sudden)',
     'wine_sudden': 'Wine (Sudden)',
-    'elec2_recurring': 'ELEC2 (Recurring)',
     'diabetes_gradual': 'Diabetes (Gradual)',
     'credit_sudden': 'Credit (Sudden)',
-    'adult_sudden': 'Adult (Sudden)',
-    'adult_gradual': 'Adult (Gradual)',
 }
 
-# Canonical order for tables (matches existing summary style)
 EXP_ORDER = [
-    'agrawal_sudden', 'wine_sudden', 'fed_heart_sudden', 'adult_gradual', 'adult_sudden',
-    'hyperplane_gradual', 'elec2_recurring', 'diabetes_gradual', 'credit_sudden',
-    'agrawal_recurring',
+    'agrawal_sudden', 'wine_sudden', 'fed_heart_sudden',
+    'hyperplane_gradual', 'hyperplane_gradual_low', 'hyperplane_gradual_vlow',
+    'diabetes_gradual', 'credit_sudden',
 ]
 
 DETECTION_METHODS = ['rds', 'cusum', 'page_hinkley', 'adwin', 'kswin']
@@ -116,8 +110,7 @@ def load_detection_results(run_dir: Path):
     return out0, t0, out1, t1
 
 
-# Recurring experiments: two change points (t0 and t1); TP only if both detected with delay >= 0.
-RECURRING_EXPERIMENTS = {'elec2_recurring', 'agrawal_recurring'}
+RECURRING_EXPERIMENTS = set()
 
 
 def aggregate_detection(runs_by_exp):
@@ -135,11 +128,10 @@ def aggregate_detection(runs_by_exp):
         for method in DETECTION_METHODS:
             if is_recurring:
                 tp = fp = 0
-                delays_both = []  # (delay_t0 + delay_t1) / 2 per TP run
+                delays_both = []
                 for _seed, run_dir in runs:
                     res0, t0, res1, t1 = load_detection_results(run_dir)
                     if res1 is None or t1 is None:
-                        # No t1 results (e.g. old run): treat as single-instance
                         r = res0[method]
                         if r['triggered']:
                             d = r['delay']
@@ -159,7 +151,6 @@ def aggregate_detection(runs_by_exp):
                         delays_both.append((r0['delay'] + r1['delay']) / 2.0)
                     elif early_t0 or early_t1:
                         fp += 1
-                    # else: fn (missed one or both, no early trigger)
                 fn = n - tp - fp
                 prec = tp / (tp + fp) if (tp + fp) > 0 else 0.0
                 rec = tp / (tp + fn) if (tp + fn) > 0 else 0.0
@@ -200,10 +191,8 @@ def load_diagnosis_metrics(run_dir: Path):
 
 def aggregate_diagnosis(runs_by_exp):
     """Aggregate diagnosis metrics: H@1, H@2, MRR per (experiment, method)."""
-    # Methods we might have: dist_sage, dist_sage_w3, dist_sage_w5, dist_pfi, dist_shap, delta_*, ...
     method_order = [
         'dist_sage', 'dist_sage_w3', 'dist_sage_w5', 'dist_pfi', 'dist_shap',
-        'delta_sage', 'delta_pfi', 'delta_shap',
         'meanph_sage', 'meanph_pfi', 'meanph_shap',
     ]
     rows = {}
@@ -211,7 +200,7 @@ def aggregate_diagnosis(runs_by_exp):
         if exp_name not in runs_by_exp:
             continue
         runs = runs_by_exp[exp_name]
-        collected = defaultdict(list)  # method -> list of {h1, h2, mrr}
+        collected = defaultdict(list)
         for _seed, run_dir in runs:
             data = load_diagnosis_metrics(run_dir)
             if not data:
@@ -243,7 +232,7 @@ def aggregate_diagnosis(runs_by_exp):
     return rows
 
 
-EXCLUDE_EXPERIMENTS = {'elec2_recurring', 'agrawal_recurring'}
+EXCLUDE_EXPERIMENTS = set()
 
 def write_detection_csv(agg_det, summary_dir: Path):
     """Compact CSV: one row per (experiment, metric), methods as columns. Excludes recurring."""
@@ -271,7 +260,6 @@ def write_detection_csv(agg_det, summary_dir: Path):
                 else:
                     row.append(f"{r[metric_key]:.2f}")
             lines.append(','.join(row))
-    # Summary row (macro-average across included experiments)
     included = [e for e in EXP_ORDER if e in agg_det and e not in EXCLUDE_EXPERIMENTS]
     if included:
         for metric_key, metric_label in [('prec', 'Prec'), ('rec', 'Rec'), ('f1', 'F1'), ('delay', 'Delay')]:
@@ -334,7 +322,6 @@ def write_detection_tex(agg_det, summary_dir: Path):
     Excludes recurring experiments."""
     methods_tex = ['RDS', 'CUSUM', 'PH', 'ADWIN', 'KSWIN']
     n_seeds_note = ''
-    # Find n_seeds from first experiment
     for exp_name in EXP_ORDER:
         if exp_name in agg_det and exp_name not in EXCLUDE_EXPERIMENTS:
             first_method = DETECTION_METHODS[0]
@@ -355,26 +342,21 @@ def write_detection_tex(agg_det, summary_dir: Path):
     included = [e for e in EXP_ORDER if e in agg_det and e not in EXCLUDE_EXPERIMENTS]
     for i, exp_name in enumerate(included):
         display = exp_display_name(exp_name)
-        # Precision
         prec_vals = {m: agg_det[exp_name][m]['prec'] for m in DETECTION_METHODS}
         bold_prec = _bold_best(prec_vals, DETECTION_METHODS, higher_is_better=True)
         lines.append(r'\multirow{4}{*}{' + display + '} & Prec. & ' + ' & '.join(bold_prec[m] for m in DETECTION_METHODS) + r' \\')
-        # Recall
         rec_vals = {m: agg_det[exp_name][m]['rec'] for m in DETECTION_METHODS}
         bold_rec = _bold_best(rec_vals, DETECTION_METHODS, higher_is_better=True)
         lines.append(' & Rec. & ' + ' & '.join(bold_rec[m] for m in DETECTION_METHODS) + r' \\')
-        # F1
         f1_vals = {m: agg_det[exp_name][m]['f1'] for m in DETECTION_METHODS}
         bold_f1 = _bold_best(f1_vals, DETECTION_METHODS, higher_is_better=True)
         lines.append(' & F1 & ' + ' & '.join(bold_f1[m] for m in DETECTION_METHODS) + r' \\')
-        # Delay (lower is better)
         delay_vals = {m: agg_det[exp_name][m]['delay'] for m in DETECTION_METHODS}
         delay_std_vals = {m: agg_det[exp_name][m].get('delay_std') for m in DETECTION_METHODS}
         bold_delay = _bold_best_delay(delay_vals, delay_std_vals, DETECTION_METHODS)
         lines.append(' & Delay & ' + ' & '.join(bold_delay[m] for m in DETECTION_METHODS) + r' \\')
         if i < len(included) - 1:
             lines.append(r'\midrule')
-    # Summary row
     lines.append(r'\midrule')
     for metric_key, metric_label, higher in [('prec', 'Prec.', True), ('rec', 'Rec.', True), ('f1', 'F1', True), ('delay', 'Delay', False)]:
         avg_vals = {}
@@ -382,7 +364,7 @@ def write_detection_tex(agg_det, summary_dir: Path):
         for m in DETECTION_METHODS:
             vals = [agg_det[e][m][metric_key] for e in included if agg_det[e][m][metric_key] is not None]
             avg_vals[m] = float(np.mean(vals)) if vals else None
-            avg_std[m] = None  # no std for averages-of-averages
+            avg_std[m] = None
         if metric_key == 'delay':
             bold = _bold_best_delay(avg_vals, avg_std, DETECTION_METHODS)
         else:
@@ -407,10 +389,9 @@ def _diagnosis_method_label(m: str) -> str:
 
 
 def write_diagnosis_csv(agg_diag, summary_dir: Path):
-    # Columns: Experiment, then for each method: H@1, H@2, MRR
     method_order_csv = [
         'dist_sage', 'dist_sage_w3', 'dist_sage_w5', 'dist_pfi', 'dist_shap',
-        'delta_sage', 'delta_pfi', 'delta_shap', 'meanph_sage', 'meanph_pfi', 'meanph_shap',
+        'meanph_sage', 'meanph_pfi', 'meanph_shap',
     ]
     method_cols = [(m, _diagnosis_method_label(m)) for m in method_order_csv]
     header = ['Experiment']
@@ -432,7 +413,6 @@ def write_diagnosis_csv(agg_diag, summary_dir: Path):
 
 
 def write_diagnosis_tex(agg_diag, summary_dir: Path):
-    # Build list of methods that appear in data
     methods_found = []
     for exp_name in list(agg_diag.keys())[:1] if agg_diag else []:
         methods_found = list(agg_diag[exp_name].keys())
@@ -476,8 +456,7 @@ def write_diagnosis_tex(agg_diag, summary_dir: Path):
     (summary_dir / 'diagnosis_table.tex').write_text('\n'.join(lines), encoding='utf-8')
 
 
-# Three experiments for the 2x3 loss/RDS panel (Sudden, Gradual, Recurring)
-LOSS_PANEL_EXPERIMENTS = ['fed_heart_sudden', 'diabetes_gradual', 'elec2_recurring']
+LOSS_PANEL_EXPERIMENTS = ['fed_heart_sudden', 'diabetes_gradual', 'credit_sudden']
 
 
 def _load_run_plot_data(run_dir: Path):
@@ -491,7 +470,6 @@ def _load_run_plot_data(run_dir: Path):
     with open(meta_path) as f:
         meta = json.load(f)
     exp_cfg = meta.get('exp_cfg', {})
-    # Warmup/calibration: from exp_cfg with run_drift_types defaults
     warmup = exp_cfg.get('warmup_rounds', 40)
     cal_start = exp_cfg.get('calibration_start', 41)
     cal_end = exp_cfg.get('calibration_end', 80)
@@ -517,7 +495,7 @@ def _load_run_plot_data(run_dir: Path):
         rds_scores = np.nanmean(rds, axis=1) if rds.ndim > 1 else rds
     if thresh_path.exists():
         th = np.load(thresh_path, allow_pickle=True)
-        rds_thresholds = th  # 1d, same length as rds_scores; may contain None/nan
+        rds_thresholds = th
 
     n_rounds = len(loss)
     return {
@@ -543,7 +521,6 @@ def plot_loss_panel(runs_by_exp, summary_dir: Path):
         return
     exps = [e for e in LOSS_PANEL_EXPERIMENTS if e in runs_by_exp and runs_by_exp[e]]
     if len(exps) != 3:
-        # Fallback: if any of the three missing, try original multi-panel or skip
         exps = [e for e in EXP_ORDER if e in runs_by_exp and runs_by_exp[e]]
         if not exps:
             return
@@ -586,9 +563,7 @@ def plot_loss_panel(runs_by_exp, summary_dir: Path):
         plt.close()
         return
 
-    # 2x3 panel for FedHeart, Diabetes, ELEC2
     fig, axes = plt.subplots(2, 3, figsize=(10, 6), sharex='col')
-    # Publication-style colors (colorblind-friendly, distinct)
     color_loss = '#2171b5'
     color_t0 = '#cb181d'
     color_trigger = '#238b45'
@@ -626,7 +601,6 @@ def plot_loss_panel(runs_by_exp, summary_dir: Path):
         ax_loss = axes[0, col]
         ax_rds = axes[1, col]
 
-        # ---- Top: Loss ----
         ax_loss.plot(rounds, loss, color=color_loss, linewidth=1.8, label='Loss', zorder=3)
         ax_loss.axvspan(1, warmup + 0.5, alpha=alpha_warmup, color=gray_warmup, zorder=0)
         ax_loss.axvspan(cal_start - 0.5, cal_end + 0.5, alpha=alpha_cal, color=amber_cal, zorder=0)
@@ -641,9 +615,7 @@ def plot_loss_panel(runs_by_exp, summary_dir: Path):
         ax_loss.grid(True, alpha=0.35, linestyle='-')
         ax_loss.set_xlim(1, n_rounds)
 
-        # ---- Bottom: RDS ----
         if rds_scores is not None and len(rds_scores) > 0:
-            # RDS rounds: from warmup+1 (1-indexed)
             rds_rounds = np.arange(warmup + 1, warmup + 1 + len(rds_scores), dtype=float)
             if len(rds_rounds) > len(rds_scores):
                 rds_rounds = rds_rounds[:len(rds_scores)]
@@ -678,7 +650,6 @@ def plot_loss_panel(runs_by_exp, summary_dir: Path):
 
         ax_rds.set_xlabel('Round', fontsize=10)
 
-    # Shared legend (one set of entries)
     from matplotlib.patches import Patch
     from matplotlib.lines import Line2D
     legend_handles = [
@@ -727,7 +698,6 @@ def plot_fi_rds_panel(runs_by_exp, summary_dir: Path):
             with open(meta_path) as f:
                 meta = json.load(f)
             t0 = meta.get('t0')
-        # rds can be 1d (scores per round) or 2d
         if rds.ndim == 1:
             y = rds
         else:
@@ -767,13 +737,11 @@ def main():
         return
     print(f"Found {sum(len(v) for v in runs_by_exp.values())} runs across {len(runs_by_exp)} experiments.")
 
-    # Detection tables
     agg_det = aggregate_detection(runs_by_exp)
     write_detection_csv(agg_det, summary_dir)
     write_detection_tex(agg_det, summary_dir)
     print(f"  Wrote {summary_dir / 'detection_table.csv'} and .tex")
 
-    # Diagnosis tables
     agg_diag = aggregate_diagnosis(runs_by_exp)
     if agg_diag:
         write_diagnosis_csv(agg_diag, summary_dir)
@@ -782,7 +750,6 @@ def main():
     else:
         print("  No diagnosis metrics found (skip diagnosis tables).")
 
-    # Panels
     if PLOTTING_AVAILABLE:
         plot_loss_panel(runs_by_exp, summary_dir)
         plot_fi_rds_panel(runs_by_exp, summary_dir)

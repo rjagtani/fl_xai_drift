@@ -12,14 +12,13 @@ Main components:
 - fl_trainer: Federated learning training loop
 - triggers: Page-Hinkley drift trigger detection
 - feature_importance: SAGE, PFI, and SHAP computation
-- diagnosis: Dist(FI) and Mean(FI)+PH diagnosis methods
+- diagnosis: Dist(FI) diagnosis methods
 - metrics: Hits@K, Precision@K, Recall@K, MRR
 - runner: Main experiment orchestration
 """
 
 __version__ = "1.0.0"
 
-# Main exports
 from .config import (
     ExperimentConfig,
     DatasetConfig,
@@ -53,7 +52,6 @@ from .feature_importance import (
 
 from .diagnosis import (
     DistFIDiagnosis,
-    DeltaFIDiagnosis,
     DiagnosisEngine,
 )
 
@@ -66,7 +64,6 @@ from .metrics import (
 from .runner import ExperimentRunner
 
 __all__ = [
-    # Config
     'ExperimentConfig',
     'DatasetConfig',
     'FLConfig',
@@ -75,34 +72,25 @@ __all__ = [
     'DiagnosisConfig',
     'MetricsConfig',
     'create_experiment_configs',
-    # Data
     'HyperplaneDataGenerator',
     'AgrawalDataGenerator',
     'BaseDataGenerator',
     'ClientDataset',
-    # Models
     'MLP',
     'get_weights',
     'set_weights',
-    # FL
     'FLTrainer',
     'FLClient',
     'FLServer',
-    # Triggers
     'PageHinkleyDetector',
-    # Feature Importance
     'SAGEComputer',
     'PFIComputer',
     'SHAPComputer',
     'FeatureImportanceResult',
-    # Diagnosis
     'DistFIDiagnosis',
-    'DeltaFIDiagnosis',
     'DiagnosisEngine',
-    # Metrics
     'DiagnosticMetrics',
     'compute_metrics',
     'aggregate_results',
-    # Runner
     'ExperimentRunner',
 ]

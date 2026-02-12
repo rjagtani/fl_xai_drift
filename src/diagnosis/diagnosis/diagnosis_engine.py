@@ -34,7 +34,6 @@ class DiagnosisEngine:
         self.config = config
         self.trainer = trainer
         
-        # Initialize FI computers
         diag_cfg = config.diagnosis
         
         self.sage_computer = SAGEComputer(
@@ -54,13 +53,11 @@ class DiagnosisEngine:
             random_state=config.seed,
         ) if diag_cfg.compute_shap else None
         
-        # Initialize diagnosis methods
         self.dist_fi = DistFIDiagnosis(
             rds_window=config.diagnosis.dist_fi_rds_window,
         )
         self.delta_fi = DeltaFIDiagnosis()
         
-        # Storage for FI values
         self.fi_matrices: Dict[str, np.ndarray] = {}
     
     def determine_diagnosis_window(
@@ -98,12 +95,10 @@ class DiagnosisEngine:
         n_clients = cfg.fl.n_clients
         n_features = len(self.trainer.get_feature_names())
         
-        # Load model checkpoint
         model = self.trainer.load_checkpoint(round_num)
         model.eval()
         model_wrapper = ModelWrapper(model)
         
-        # Initialize result arrays
         results = {}
         if self.sage_computer:
             results['sage'] = np.full((n_clients, n_features), np.nan)
@@ -112,17 +107,14 @@ class DiagnosisEngine:
         if self.shap_computer:
             results['shap'] = np.full((n_clients, n_features), np.nan)
         
-        # Compute FI for each client
         for client_id in range(n_clients):
             client_data = self.trainer.get_client_data(client_id, round_num)
             
-            # Create background set (IID samples from train)
             X_background = self.sage_computer.create_background_set(
                 client_data.X_train,
                 max_size=cfg.diagnosis.background_size,
             ) if self.sage_computer else None
             
-            # Create estimation set (full val or max_samples, whichever is lower)
             max_est = cfg.diagnosis.estimation_max_samples
             X_est, y_est = self.sage_computer.create_estimation_set(
                 client_data.X_val,
@@ -137,7 +129,6 @@ class DiagnosisEngine:
                     max_samples=max_est,
                 )
             
-            # Compute SAGE
             if self.sage_computer:
                 try:
                     sage_values = self.sage_computer.compute(
@@ -150,7 +141,6 @@ class DiagnosisEngine:
                 except Exception as e:
                     print(f"SAGE computation failed for client {client_id}, round {round_num}: {e}")
             
-            # Compute PFI
             if self.pfi_computer:
                 try:
                     pfi_values = self.pfi_computer.compute(
@@ -163,7 +153,6 @@ class DiagnosisEngine:
                 except Exception as e:
                     print(f"PFI computation failed for client {client_id}, round {round_num}: {e}")
             
-            # Compute SHAP
             if self.shap_computer:
                 try:
                     shap_values = self.shap_computer.compute(
@@ -196,7 +185,6 @@ class DiagnosisEngine:
         n_features = len(self.trainer.get_feature_names())
         n_rounds = len(diagnosis_rounds)
         
-        # Initialize matrices
         methods = []
         if self.sage_computer:
             methods.append('sage')
@@ -210,7 +198,6 @@ class DiagnosisEngine:
             for method in methods
         }
         
-        # Compute FI for each round
         for r_idx, round_num in enumerate(diagnosis_rounds):
             print(f"Computing FI for round {round_num}/{diagnosis_rounds[-1]}...")
             round_results = self.compute_fi_for_round(round_num)
@@ -250,27 +237,21 @@ class DiagnosisEngine:
         Returns:
             Dictionary with diagnosis results
         """
-        # Determine diagnosis window
         diagnosis_rounds = self.determine_diagnosis_window(trigger_round)
         print(f"Diagnosis window: rounds {diagnosis_rounds[0]} to {diagnosis_rounds[-1]}")
         
-        # Compute client weights if not provided
         if client_weights is None:
             client_weights = self._compute_client_weights(diagnosis_rounds[0])
         print(f"  Client weights: {client_weights}")
         
-        # Compute FI values
         fi_matrices = self.compute_fi_for_window(diagnosis_rounds)
         
-        # Run Dist(FI) diagnosis (client-weighted RDS ranking at trigger round)
         dist_results = self.dist_fi.diagnose(fi_matrices, trigger_idx=-1,
                                              client_weights=client_weights)
         
-        # Run Delta(FI) diagnosis (client-weighted |mean_FI(trigger) - mean_FI(prev)|)
         delta_results = self.delta_fi.diagnose(fi_matrices,
                                                client_weights=client_weights)
         
-        # Combine results
         all_results = {
             'trigger_round': trigger_round,
             'diagnosis_rounds': diagnosis_rounds,
@@ -279,7 +260,6 @@ class DiagnosisEngine:
             'fi_matrices': fi_matrices,
         }
         
-        # Save results (default location; caller can override via save_results())
         self._save_results(all_results)
         
         return all_results
@@ -294,11 +274,9 @@ class DiagnosisEngine:
             output_dir = self.config.diagnosis_dir
         output_dir.mkdir(parents=True, exist_ok=True)
         
-        # Save FI matrices
         for method, matrix in results['fi_matrices'].items():
             np.save(output_dir / f"fi_matrix_{method}.npy", matrix)
         
-        # Save rankings
         rankings = {}
         
         for name, result in results['dist_fi'].items():
@@ -317,7 +295,6 @@ class DiagnosisEngine:
         with open(output_dir / "rankings.json", 'w') as f:
             json.dump(rankings, f, indent=2)
         
-        # Save metadata
         metadata = {
             'trigger_round': results['trigger_round'],
             'diagnosis_rounds': results['diagnosis_rounds'],

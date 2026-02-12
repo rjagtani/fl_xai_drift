@@ -21,3 +21,5 @@ seaborn>=0.13.0
 
 # Utilities
 tqdm>=4.66.0
+goodpoints
+ot

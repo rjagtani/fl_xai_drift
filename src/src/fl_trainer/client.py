@@ -62,7 +62,6 @@ class FLClient:
         Returns:
             Tuple of (updated parameters, number of samples, metrics dict)
         """
-        # Store initial parameters for computing weight update
         initial_params = self.get_parameters()
         
         self.model.train()
@@ -89,7 +88,6 @@ class FLClient:
         avg_loss = total_loss / max(n_batches, 1)
         n_samples = len(train_loader.dataset)
         
-        # Compute weight update (Δw = w_after - w_before)
         final_params = self.get_parameters()
         weight_update = [fp - ip for fp, ip in zip(final_params, initial_params)]
         
@@ -97,7 +95,7 @@ class FLClient:
             'loss': avg_loss,
             'client_id': self.client_id,
             'n_samples': n_samples,
-            'weight_update': weight_update,  # For Manias et al.
+            'weight_update': weight_update,
         }
         
         return self.get_parameters(), n_samples, metrics
@@ -176,7 +174,7 @@ class FLClient:
                 
                 outputs = model(X_batch)
                 probs = torch.softmax(outputs, dim=1)
-                max_probs, _ = torch.max(probs, dim=1)  # Max posterior probability
+                max_probs, _ = torch.max(probs, dim=1)
                 
                 total_confidence += max_probs.sum().item()
                 total_samples += len(y_batch)

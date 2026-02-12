@@ -13,17 +13,14 @@ from sklearn.preprocessing import StandardScaler
 
 from .base import BaseDataGenerator, ClientDataset
 
-# UCI Heart Disease: 13 clinical features (after preprocessing)
 HEART_FEATURE_NAMES = [
     'age', 'sex', 'cp', 'trestbps', 'chol',
     'fbs', 'restecg', 'thalach', 'exang',
     'oldpeak', 'slope', 'ca', 'thal',
 ]
 
-# Hospital names for reference
 HOSPITAL_NAMES = ['cleveland', 'hungarian', 'switzerland', 'va_long_beach']
 
-# URLs for the 4 hospital files from UCI
 UCI_URLS = {
     'cleveland': 'https://archive.ics.uci.edu/ml/machine-learning-databases/heart-disease/processed.cleveland.data',
     'hungarian': 'https://archive.ics.uci.edu/ml/machine-learning-databases/heart-disease/processed.hungarian.data',
@@ -54,14 +51,13 @@ class FedHeartDataGenerator(BaseDataGenerator):
     def __init__(
         self,
         n_clients: int = 4,
-        n_samples_per_client: int = 500,  # Not used; natural sizes kept
+        n_samples_per_client: int = 500,
         test_size: float = 0.2,
         seed: int = 42,
         drift_condition_feature: str = "chol",
-        drift_condition_threshold: Optional[float] = None,  # Auto: median
+        drift_condition_threshold: Optional[float] = None,
         drift_flip_prob: float = 0.3,
     ):
-        # Fixed at 4 clients (hospitals)
         super().__init__(
             n_clients=4,
             n_samples_per_client=n_samples_per_client,
@@ -82,9 +78,7 @@ class FedHeartDataGenerator(BaseDataGenerator):
     def _load_single_hospital(self, url: str) -> Tuple[np.ndarray, np.ndarray]:
         """Load and preprocess a single hospital's data from UCI."""
         df = pd.read_csv(url, header=None, names=COLUMN_NAMES, na_values='?')
-        # Binary target: 0 = no disease, 1-4 = disease present → binary
         y = (df['target'].values > 0).astype(np.int64)
-        # Impute missing numeric values with column median (Switzerland has many NaNs)
         for col in HEART_FEATURE_NAMES:
             if df[col].isna().any():
                 median_val = df[col].median()
@@ -98,7 +92,6 @@ class FedHeartDataGenerator(BaseDataGenerator):
         if self._X_per_hospital is not None:
             return
 
-        # Load all 4 hospitals
         all_X = []
         all_y = []
         hospital_ids = []
@@ -112,18 +105,14 @@ class FedHeartDataGenerator(BaseDataGenerator):
         y_all = np.concatenate(all_y)
         hospital_ids = np.array(hospital_ids)
 
-        # Fit scaler on all data
         self._scaler = StandardScaler()
         X_scaled = self._scaler.fit_transform(X_all)
 
-        # Store raw condition column (before scaling) for drift
         raw_condition = X_all[:, self._condition_col].copy()
 
-        # Auto-set threshold as median if not provided
         if self.drift_condition_threshold is None:
             self.drift_condition_threshold = float(np.median(raw_condition))
 
-        # Split back into per-hospital
         self._X_per_hospital = {}
         self._y_per_hospital = {}
         self._raw_condition_per_hospital = {}
@@ -134,7 +123,6 @@ class FedHeartDataGenerator(BaseDataGenerator):
             self._y_per_hospital[h_idx] = y_all[mask]
             self._raw_condition_per_hospital[h_idx] = raw_condition[mask]
 
-        # Update feature count
         self.n_features = X_all.shape[1]
         self._feature_names = HEART_FEATURE_NAMES[:self.n_features]
 
@@ -178,9 +166,7 @@ class FedHeartDataGenerator(BaseDataGenerator):
             if generate_drifted and client_id in drifted_clients:
                 y = self._apply_drift(raw_cond, y, client_id,
                                       flip_prob_override=flip_prob_override)
-            # Split
             if len(X) < 5:
-                # Too few samples, skip split
                 X_train, X_val = X, X
                 y_train, y_val = y, y
             else:

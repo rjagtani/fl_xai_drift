@@ -48,11 +48,11 @@ class Elec2DataGenerator(BaseDataGenerator):
     def __init__(
         self,
         n_clients: int = 7,
-        n_samples_per_client: int = 500,  # Not used directly; temporal sizes
+        n_samples_per_client: int = 500,
         test_size: float = 0.2,
         seed: int = 42,
         drift_condition_feature: str = "nswprice",
-        drift_condition_threshold: Optional[float] = None,  # Auto: median
+        drift_condition_threshold: Optional[float] = None,
         drift_flip_prob: float = 0.3,
     ):
         super().__init__(
@@ -69,15 +69,14 @@ class Elec2DataGenerator(BaseDataGenerator):
         self._loaded = False
         self._X_full: Optional[np.ndarray] = None
         self._y_full: Optional[np.ndarray] = None
-        self._day_of_week: Optional[np.ndarray] = None  # 0=Mon..6=Sun
-        self._week_index: Optional[np.ndarray] = None  # week number (0-based)
+        self._day_of_week: Optional[np.ndarray] = None
+        self._week_index: Optional[np.ndarray] = None
         self._raw_nswprice: Optional[np.ndarray] = None
         self._scaler: Optional[StandardScaler] = None
         self._feature_names: List[str] = ELEC2_FEATURE_NAMES.copy()
-        self._condition_col: int = 0  # nswprice index after preprocessing
+        self._condition_col: int = 0
         self._n_weeks: int = 0
 
-        # Per day-of-week pooled indices (for static mode)
         self._client_to_indices: Optional[Dict[int, np.ndarray]] = None
 
     def _load_and_preprocess(self):
@@ -87,17 +86,14 @@ class Elec2DataGenerator(BaseDataGenerator):
         data = fetch_openml('electricity', version=1, as_frame=True, parser='auto')
         df = data.frame
 
-        # Target: UP=1, DOWN=0
         target_col = 'class' if 'class' in df.columns else df.columns[-1]
         y = (df[target_col].astype(str).str.upper() == 'UP').astype(np.int64).values
 
-        # Features: nswprice, nswdemand, vicprice, vicdemand, transfer, period
         feature_map = {}
         for col in ['nswprice', 'nswdemand', 'vicprice', 'vicdemand', 'transfer']:
             if col in df.columns:
                 feature_map[col] = df[col].astype(float).values
 
-        # Period: 0-47 (half-hours). Encode as sin/cos for cyclical nature.
         if 'period' in df.columns:
             period_raw = df['period'].astype(float).values
         else:
@@ -106,16 +102,12 @@ class Elec2DataGenerator(BaseDataGenerator):
         period_sin = np.sin(2 * np.pi * period_raw / 48.0)
         period_cos = np.cos(2 * np.pi * period_raw / 48.0)
 
-        # Day column: 1-7, where 1=Monday (in the original dataset, day is 1-based day-of-week)
         if 'day' in df.columns:
             day_raw = df['day'].astype(int).values
-            # Convert 1-based to 0-based (0=Mon..6=Sun)
             day_of_week = (day_raw - 1) % 7
         else:
-            # Fallback: assign sequentially (48 records per day)
             day_of_week = np.repeat(np.arange(len(df) // 48 + 1), 48)[:len(df)] % 7
 
-        # Build X matrix
         X_cols = []
         for col in ['nswprice', 'nswdemand', 'vicprice', 'vicdemand', 'transfer']:
             if col in feature_map:
@@ -124,20 +116,15 @@ class Elec2DataGenerator(BaseDataGenerator):
         X_cols.append(period_cos)
         X = np.column_stack(X_cols).astype(np.float64)
 
-        # Raw nswprice for drift condition
         raw_nswprice = feature_map.get('nswprice', X[:, 0]).copy()
 
-        # Assign week indices: consecutive days grouped into weeks
-        # Each day has 48 records. Assign day index, then week = day_index // 7
         n_records = len(y)
-        day_index = np.arange(n_records) // 48  # Which day (0-based) each record belongs to
-        week_index = day_index // 7  # Which week
+        day_index = np.arange(n_records) // 48
+        week_index = day_index // 7
 
-        # Scale features
         scaler = StandardScaler()
         X_scaled = scaler.fit_transform(X)
 
-        # Auto-set threshold
         if self.drift_condition_threshold is None:
             self.drift_condition_threshold = float(np.median(raw_nswprice))
 
@@ -151,7 +138,6 @@ class Elec2DataGenerator(BaseDataGenerator):
         self.n_features = X.shape[1]
         self._feature_names = ELEC2_FEATURE_NAMES[:self.n_features]
 
-        # Build per-day-of-week pooled indices (for static mode)
         self._client_to_indices = {}
         for dow in range(7):
             self._client_to_indices[dow] = np.where(day_of_week == dow)[0]

@@ -19,7 +19,6 @@ Main components:
 
 __version__ = "1.0.0"
 
-# Main exports
 from .config import (
     ExperimentConfig,
     DatasetConfig,
@@ -66,7 +65,6 @@ from .metrics import (
 from .runner import ExperimentRunner
 
 __all__ = [
-    # Config
     'ExperimentConfig',
     'DatasetConfig',
     'FLConfig',
@@ -75,34 +73,26 @@ __all__ = [
     'DiagnosisConfig',
     'MetricsConfig',
     'create_experiment_configs',
-    # Data
     'HyperplaneDataGenerator',
     'AgrawalDataGenerator',
     'BaseDataGenerator',
     'ClientDataset',
-    # Models
     'MLP',
     'get_weights',
     'set_weights',
-    # FL
     'FLTrainer',
     'FLClient',
     'FLServer',
-    # Triggers
     'PageHinkleyDetector',
-    # Feature Importance
     'SAGEComputer',
     'PFIComputer',
     'SHAPComputer',
     'FeatureImportanceResult',
-    # Diagnosis
     'DistFIDiagnosis',
     'MeanFIPHDiagnosis',
     'DiagnosisEngine',
-    # Metrics
     'DiagnosticMetrics',
     'compute_metrics',
     'aggregate_results',
-    # Runner
     'ExperimentRunner',
 ]

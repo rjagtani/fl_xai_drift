@@ -49,7 +49,7 @@ class PFIComputer(BaseImportanceComputer):
     def compute(
         self,
         model_fn: Callable,
-        X_background: np.ndarray,  # Not used for PFI
+        X_background: np.ndarray,
         X_estimation: np.ndarray,
         y_estimation: np.ndarray,
     ) -> np.ndarray:
@@ -71,25 +71,20 @@ class PFIComputer(BaseImportanceComputer):
         n_samples, n_features = X.shape
         rng = np.random.default_rng(self.random_state)
         
-        # Compute baseline loss
         baseline_loss = self._compute_loss(model_fn, X, y)
         
-        # Compute PFI for each feature
         pfi_values = np.zeros(n_features)
         
         for j in range(n_features):
             permuted_losses = []
             
             for _ in range(self.n_permutations):
-                # Create permuted copy
                 X_permuted = X.copy()
                 X_permuted[:, j] = rng.permutation(X_permuted[:, j])
                 
-                # Compute loss with permuted feature
                 perm_loss = self._compute_loss(model_fn, X_permuted, y)
                 permuted_losses.append(perm_loss)
             
-            # PFI is the average increase in loss
             pfi_values[j] = np.mean(permuted_losses) - baseline_loss
         
         return pfi_values
@@ -111,14 +106,12 @@ class PFIComputer(BaseImportanceComputer):
         Returns:
             FeatureImportanceResult with PFI values
         """
-        # Create estimation set (full val or capped at max_samples)
         X_est, y_est = self.create_estimation_set(
             client_data.X_val,
             client_data.y_val,
             max_samples=estimation_max_samples,
         )
         
-        # Get model prediction function
         if hasattr(model, 'predict_proba'):
             model_fn = model.predict_proba
         elif hasattr(model, '__call__'):
@@ -126,10 +119,9 @@ class PFIComputer(BaseImportanceComputer):
         else:
             raise ValueError("Model must have predict_proba method or be callable")
         
-        # Compute PFI values
         pfi_values = self.compute(
             model_fn,
-            None,  # Not used for PFI
+            None,
             X_est,
             y_est,
         )

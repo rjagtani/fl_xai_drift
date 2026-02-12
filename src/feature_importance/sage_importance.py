@@ -12,7 +12,6 @@ import torch.nn.functional as F
 
 from .base import BaseImportanceComputer, FeatureImportanceResult
 
-# Import SAGE components
 try:
     from sage import MarginalImputer, KernelEstimator
     SAGE_AVAILABLE = True
@@ -69,18 +68,14 @@ class SAGEComputer(BaseImportanceComputer):
         if not SAGE_AVAILABLE:
             raise ImportError("sage-importance package required for SAGE computation")
         
-        # Ensure proper dtypes
         X_background = np.asarray(X_background, dtype=np.float32)
         X_estimation = np.asarray(X_estimation, dtype=np.float32)
         y_estimation = np.asarray(y_estimation, dtype=np.int64)
         
-        # Create marginal imputer
         imputer = MarginalImputer(model_fn, X_background)
         
-        # Create kernel estimator
         estimator = KernelEstimator(imputer, self.loss_function)
         
-        # Compute SAGE values
         sage_values = estimator(
             X_estimation,
             y_estimation,
@@ -106,20 +101,17 @@ class SAGEComputer(BaseImportanceComputer):
         Returns:
             FeatureImportanceResult with SAGE values
         """
-        # Create background set from training data (IID samples)
         X_background = self.create_background_set(
             client_data.X_train,
             max_size=self.background_size,
         )
         
-        # Create estimation set from validation data
         X_est, y_est = self.create_estimation_set(
             client_data.X_val,
             client_data.y_val,
             max_samples=max_samples,
         )
         
-        # Get model prediction function
         if hasattr(model, 'predict_proba'):
             model_fn = model.predict_proba
         elif hasattr(model, '__call__'):
@@ -127,7 +119,6 @@ class SAGEComputer(BaseImportanceComputer):
         else:
             raise ValueError("Model must have predict_proba method or be callable")
         
-        # Compute SAGE values
         sage_values = self.compute(
             model_fn,
             X_background,
@@ -137,7 +128,7 @@ class SAGEComputer(BaseImportanceComputer):
         
         return FeatureImportanceResult(
             client_id=client_data.client_id,
-            round_num=-1,  # To be filled by caller
+            round_num=-1,
             values=sage_values,
             method='sage',
         )
@@ -168,26 +159,21 @@ class SAGEWithLoss(SAGEComputer):
         X_estimation = np.asarray(X_estimation, dtype=np.float32)
         y_estimation = np.asarray(y_estimation, dtype=np.int64)
         
-        # Create imputer and estimator
         imputer = MarginalImputer(model_fn, X_background)
         estimator = KernelEstimator(imputer, self.loss_function)
         
-        # Compute SAGE values
         sage_values = estimator(X_estimation, y_estimation, verbose=self.verbose)
         
-        # Compute baseline loss (all features masked)
         n_samples, n_features = X_estimation.shape
         mask = np.zeros((n_samples, n_features), dtype=bool)
         baseline_preds = imputer(X_estimation, mask)
         
-        # Compute cross-entropy loss
         eps = 1e-10
         baseline_preds = np.clip(baseline_preds, eps, 1 - eps)
         baseline_loss = -np.mean(
             np.log(baseline_preds[np.arange(n_samples), y_estimation])
         )
         
-        # Compute total loss (no features masked)
         preds = model_fn(X_estimation)
         preds = np.clip(preds, eps, 1 - eps)
         total_loss = -np.mean(

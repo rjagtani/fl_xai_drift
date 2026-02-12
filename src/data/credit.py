@@ -44,7 +44,7 @@ class CreditDataGenerator(BaseDataGenerator):
     def __init__(
         self,
         n_clients: int = 5,
-        n_samples_per_client: int = 500,  # not used when use_all_data_per_client=True
+        n_samples_per_client: int = 500,
         test_size: float = 0.2,
         seed: int = 42,
         use_all_data_per_client: bool = True,
@@ -63,9 +63,6 @@ class CreditDataGenerator(BaseDataGenerator):
         self._scaler: Optional[StandardScaler] = None
         self._feature_names: List[str] = CREDIT_FEATURE_NAMES.copy()
 
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
 
     @staticmethod
     def _target_encode_column(
@@ -89,9 +86,6 @@ class CreditDataGenerator(BaseDataGenerator):
             np.float64
         )
 
-    # ------------------------------------------------------------------
-    # Data loading
-    # ------------------------------------------------------------------
 
     def _ensure_data(self):
         if self._X_full is not None:
@@ -100,13 +94,10 @@ class CreditDataGenerator(BaseDataGenerator):
         data = fetch_openml('credit-g', version=1, as_frame=True, parser='auto')
         df = data.frame
 
-        # Target: good = 0, bad = 1
         y = (df['class'].astype(str) == 'bad').astype(np.int64).values
 
-        # Save purpose for client partitioning (before encoding)
         purpose_labels = df['purpose'].astype(str).values
 
-        # Build feature matrix (keep declared column order)
         feature_cols = [f for f in CREDIT_FEATURE_NAMES if f in df.columns]
         self._feature_names = feature_cols
         self.n_features = len(feature_cols)
@@ -119,10 +110,8 @@ class CreditDataGenerator(BaseDataGenerator):
                 X_list.append(self._target_encode_column(df[f], y))
         X = np.column_stack(X_list)
 
-        # Partition by purpose
         self._client_to_indices = self._build_client_indices(purpose_labels)
 
-        # Scale
         self._scaler = StandardScaler()
         self._X_full = self._scaler.fit_transform(X).astype(np.float32)
         self._y_full = y
@@ -155,15 +144,12 @@ class CreditDataGenerator(BaseDataGenerator):
             out[c] = ind
         return out
 
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
 
     def get_feature_names(self) -> List[str]:
         return self._feature_names.copy()
 
     def get_drifted_feature_indices(self) -> Set[int]:
-        return {1}  # duration
+        return {1}
 
     def generate_static_client_data(
         self,

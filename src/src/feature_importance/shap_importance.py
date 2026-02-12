@@ -9,7 +9,6 @@ import numpy as np
 
 from .base import BaseImportanceComputer, FeatureImportanceResult
 
-# Import SHAP
 try:
     import shap
     SHAP_AVAILABLE = True
@@ -33,7 +32,7 @@ class SHAPComputer(BaseImportanceComputer):
         self,
         background_size: int = 50,
         use_kmeans: bool = True,
-        n_samples_explain: int = 100,  # Number of samples to explain
+        n_samples_explain: int = 100,
         random_state: int = 42,
         silent: bool = True,
     ):
@@ -50,7 +49,7 @@ class SHAPComputer(BaseImportanceComputer):
         model_fn: Callable,
         X_background: np.ndarray,
         X_estimation: np.ndarray,
-        y_estimation: np.ndarray,  # Not directly used (prediction-based)
+        y_estimation: np.ndarray,
     ) -> np.ndarray:
         """
         Compute mean absolute SHAP values using KernelSHAP.
@@ -71,15 +70,12 @@ class SHAPComputer(BaseImportanceComputer):
         X_estimation = np.asarray(X_estimation, dtype=np.float32)
         y_estimation = np.asarray(y_estimation, dtype=np.int64)
         
-        # Limit number of samples to explain
         n_explain = min(self.n_samples_explain, len(X_estimation))
         rng = np.random.default_rng(self.random_state)
         indices = rng.choice(len(X_estimation), size=n_explain, replace=False)
         X_explain = X_estimation[indices]
         y_explain = y_estimation[indices]
         
-        # Create KernelSHAP explainer
-        # Use kmeans summary of background data for efficiency
         if len(X_background) > 50:
             background_summary = shap.kmeans(X_background, min(50, len(X_background)))
         else:
@@ -87,13 +83,8 @@ class SHAPComputer(BaseImportanceComputer):
         
         explainer = shap.KernelExplainer(model_fn, background_summary, silent=self.silent)
         
-        # Compute SHAP values
         shap_values = explainer.shap_values(X_explain, silent=self.silent)
         
-        # shap_values can be:
-        # - list [class0_shap, class1_shap, ...] each (n_samples, n_features)
-        # - array (n_samples, n_features) for binary in some versions
-        # - array (n_samples, n_features, n_classes) for binary with predict_proba
         if isinstance(shap_values, list):
             all_shap = np.zeros((n_explain, X_estimation.shape[1]))
             for i in range(n_explain):
@@ -101,12 +92,10 @@ class SHAPComputer(BaseImportanceComputer):
         else:
             shap_values = np.asarray(shap_values)
             if shap_values.ndim == 3:
-                # (n_samples, n_features, n_classes) -> reduce to (n_samples, n_features)
                 all_shap = np.mean(np.abs(shap_values), axis=-1)
             else:
                 all_shap = shap_values
         
-        # Mean absolute SHAP values per feature -> shape (n_features,)
         mean_abs_shap = np.mean(np.abs(all_shap), axis=0)
         if mean_abs_shap.ndim > 1:
             mean_abs_shap = np.mean(mean_abs_shap, axis=-1)
@@ -139,10 +128,10 @@ class SHAPComputer(BaseImportanceComputer):
         shap_values = explainer.shap_values(X_estimation, silent=self.silent)
         
         if isinstance(shap_values, list):
-            return shap_values[1]  # Positive class (n_samples, n_features)
+            return shap_values[1]
         shap_values = np.asarray(shap_values)
         if shap_values.ndim == 3:
-            return np.mean(shap_values, axis=-1)  # (n_samples, n_features)
+            return np.mean(shap_values, axis=-1)
         return shap_values
     
     def compute_for_client(
@@ -162,20 +151,17 @@ class SHAPComputer(BaseImportanceComputer):
         Returns:
             FeatureImportanceResult with mean absolute SHAP values
         """
-        # Create background set from training data
         X_background = self.create_background_set(
             client_data.X_train,
             max_size=self.background_size,
         )
         
-        # Create estimation set
         X_est, y_est = self.create_estimation_set(
             client_data.X_val,
             client_data.y_val,
             fraction=estimation_fraction,
         )
         
-        # Get model prediction function
         if hasattr(model, 'predict_proba'):
             model_fn = model.predict_proba
         elif hasattr(model, '__call__'):
@@ -183,7 +169,6 @@ class SHAPComputer(BaseImportanceComputer):
         else:
             raise ValueError("Model must have predict_proba method or be callable")
         
-        # Compute SHAP values
         shap_values = self.compute(
             model_fn,
             X_background,

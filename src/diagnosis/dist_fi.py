@@ -22,11 +22,11 @@ from dataclasses import dataclass
 class DistFIResult:
     """Result of Dist(FI) diagnosis."""
     
-    method: str  # 'sage', 'pfi', or 'shap'
-    rds_scores: np.ndarray  # Shape: (n_features,)
-    feature_ranking: np.ndarray  # Indices sorted by RDS (descending)
-    wasserstein_distances: np.ndarray  # Raw Wasserstein distances
-    past_stds: np.ndarray  # Standard deviations of past distributions
+    method: str
+    rds_scores: np.ndarray
+    feature_ranking: np.ndarray
+    wasserstein_distances: np.ndarray
+    past_stds: np.ndarray
 
 
 class DistFIDiagnosis:
@@ -49,9 +49,9 @@ class DistFIDiagnosis:
     
     def compute_rds(
         self,
-        fi_matrix: np.ndarray,  # Shape: (window_size+1, n_clients, n_features)
-        trigger_idx: int = -1,  # Index of trigger round in the window (default: last)
-        client_weights: Optional[np.ndarray] = None,  # (n_clients,) probability weights
+        fi_matrix: np.ndarray,
+        trigger_idx: int = -1,
+        client_weights: Optional[np.ndarray] = None,
     ) -> DistFIResult:
         """
         Compute RDS scores for all features.
@@ -69,12 +69,11 @@ class DistFIDiagnosis:
         """
         n_rounds, n_clients, n_features = fi_matrix.shape
         
-        # Separate current (trigger) and past rounds
         if trigger_idx == -1:
             trigger_idx = n_rounds - 1
         
-        current_fi = fi_matrix[trigger_idx]  # Shape: (n_clients, n_features)
-        past_fi = fi_matrix[:trigger_idx]  # Shape: (past_rounds, n_clients, n_features)
+        current_fi = fi_matrix[trigger_idx]
+        past_fi = fi_matrix[:trigger_idx]
         n_past = past_fi.shape[0]
         
         rds_scores = np.zeros(n_features)
@@ -82,14 +81,11 @@ class DistFIDiagnosis:
         past_stds = np.zeros(n_features)
         
         for j in range(n_features):
-            # Current distribution: FI values across clients at trigger
-            current_vals = current_fi[:, j]  # Shape: (n_clients,)
+            current_vals = current_fi[:, j]
             
-            # Past distribution: FI values across all past rounds and clients
-            past_vals_2d = past_fi[:, :, j]  # Shape: (past_rounds, n_clients)
-            past_vals = past_vals_2d.flatten()  # Shape: (past_rounds * n_clients,)
+            past_vals_2d = past_fi[:, :, j]
+            past_vals = past_vals_2d.flatten()
             
-            # Build weight vectors (handle NaNs by masking + renormalising)
             cur_mask = ~np.isnan(current_vals)
             past_mask = ~np.isnan(past_vals)
             cur_clean = current_vals[cur_mask]
@@ -102,27 +98,21 @@ class DistFIDiagnosis:
                 continue
             
             if client_weights is not None:
-                # Current weights: w_i for each non-NaN client
                 cur_w = client_weights[cur_mask]
-                cur_w = cur_w / cur_w.sum()  # renormalise after NaN removal
+                cur_w = cur_w / cur_w.sum()
                 
-                # Past weights: tile w_i across R past rounds, then mask
-                # Each (round, client) gets weight w_i / R so total per
-                # client = w_i.  After NaN removal we renormalise.
-                past_w_2d = np.tile(client_weights, (n_past, 1))  # (R, C)
+                past_w_2d = np.tile(client_weights, (n_past, 1))
                 past_w = past_w_2d.flatten()[past_mask]
                 past_w = past_w / past_w.sum()
             else:
                 cur_w = None
                 past_w = None
             
-            # Compute Wasserstein distance (scipy normalises weights internally)
             w_dist = wasserstein_distance(
                 cur_clean, past_clean,
                 u_weights=cur_w, v_weights=past_w,
             )
             
-            # Compute std of past distribution (weighted if applicable)
             if past_w is not None:
                 pw = past_w / past_w.sum()
                 wmean = np.average(past_clean, weights=pw)
@@ -131,18 +121,16 @@ class DistFIDiagnosis:
             else:
                 std_past = np.std(past_clean)
             
-            # Compute RDS
             rds = w_dist / (std_past + self.eps)
             
             rds_scores[j] = rds
             wasserstein_dists[j] = w_dist
             past_stds[j] = std_past
         
-        # Rank features by RDS (descending)
         feature_ranking = np.argsort(rds_scores)[::-1]
         
         return DistFIResult(
-            method='',  # To be set by caller
+            method='',
             rds_scores=rds_scores,
             feature_ranking=feature_ranking,
             wasserstein_distances=wasserstein_dists,
@@ -151,7 +139,7 @@ class DistFIDiagnosis:
     
     def diagnose(
         self,
-        fi_matrices: Dict[str, np.ndarray],  # method -> (rounds, clients, features)
+        fi_matrices: Dict[str, np.ndarray],
         trigger_idx: int = -1,
         client_weights: Optional[np.ndarray] = None,
     ) -> Dict[str, DistFIResult]:
@@ -199,26 +187,23 @@ class DistFIWithClients(DistFIDiagnosis):
         if trigger_idx == -1:
             trigger_idx = n_rounds - 1
         
-        current_fi = fi_matrix[trigger_idx]  # (n_clients, n_features)
-        past_fi = fi_matrix[:trigger_idx]  # (past_rounds, n_clients, n_features)
+        current_fi = fi_matrix[trigger_idx]
+        past_fi = fi_matrix[:trigger_idx]
         
         if client_weights is not None:
-            # Weighted mean / std across (rounds, clients) in past
             n_past = past_fi.shape[0]
-            # Weights: w_i / R per (round, client), broadcast over features
-            w_2d = np.tile(client_weights, (n_past, 1))  # (R, C)
+            w_2d = np.tile(client_weights, (n_past, 1))
             w_flat = w_2d.flatten()
             w_flat = w_flat / w_flat.sum()
             
-            past_flat = past_fi.reshape(-1, n_features)  # (R*C, F)
+            past_flat = past_fi.reshape(-1, n_features)
             past_mean = np.average(past_flat, axis=0, weights=w_flat)
             past_var = np.average((past_flat - past_mean) ** 2, axis=0, weights=w_flat)
             past_std = np.sqrt(past_var)
         else:
-            past_mean = np.nanmean(past_fi, axis=(0, 1))  # (n_features,)
-            past_std = np.nanstd(past_fi, axis=(0, 1))  # (n_features,)
+            past_mean = np.nanmean(past_fi, axis=(0, 1))
+            past_std = np.nanstd(past_fi, axis=(0, 1))
         
-        # Z-score of current values relative to past
         contributions = (current_fi - past_mean) / (past_std + self.eps)
         
         return contributions

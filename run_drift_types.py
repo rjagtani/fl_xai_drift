@@ -1,18 +1,17 @@
 """
-Drift-type experiments: sudden, gradual, recurring.
+Drift-type experiments: sudden, gradual.
 
 Runs one experiment per (dataset, drift_type) combination:
-  Sudden:    Agrawal (10 clients), Wine (5), Credit-G (5)
-  Gradual:   Diabetes (6 clients), Hyperplane (10)
-  Recurring: ELEC2 (7 clients), FedHeart (4)
+  Sudden:    FedHeart (4 clients), Agrawal (10), Wine (5), Credit-G (5)
+  Gradual:   Hyperplane (10 clients), Diabetes (6)
 
 Results saved to  results/drift_types/<name>_seed<seed>/
 
 Usage:
-  python run_drift_types.py                       # all 4
-  python run_drift_types.py --experiments adult_gradual  # one
+  python run_drift_types.py                       # all experiments
+  python run_drift_types.py --experiments wine_sudden  # one
   python run_drift_types.py --redetect             # re-run detection only
-  python run_drift_types.py --diagnose-only adult_gradual_seed42  # diagnosis only (no training)
+  python run_drift_types.py --diagnose-only wine_sudden_seed42  # diagnosis only (no training)
 """
 
 import sys
@@ -38,15 +37,11 @@ from src.utils.visualization import plot_loss_and_rds_detection
 from src.diagnosis.diagnosis_engine import DiagnosisEngine
 from src.metrics.evaluation import compute_metrics, metrics_to_dict
 
-# ---------------------------------------------------------------------------
-# Experiment definitions
-# ---------------------------------------------------------------------------
 
 SEED = 42
 OUTPUT_DIR = Path('results') / 'drift_types'
 
 EXPERIMENTS = {
-    # ---------- FedHeart sudden (covariate: noise on cp) ----------
     'fed_heart_sudden': {
         'dataset': 'fed_heart',
         'drift_type': 'sudden',
@@ -55,16 +50,15 @@ EXPERIMENTS = {
         'n_rounds': 300,
         'n_features': 13,
         'hidden_sizes': [64, 32],
-        'learning_rate': 0.005,                  # lower LR to stabilise small static dataset
-        'warmup_rounds': 60,                     # longer warmup for slow convergence
+        'learning_rate': 0.005,
+        'warmup_rounds': 60,
         'calibration_start': 61,
         'calibration_end': 100,
-        'noise_std': 2.0,                        # Gaussian noise std (data is standardised)
+        'noise_std': 2.0,
         'drifted_client_proportion': 0.5,
-        'drifted_features': {2},                 # cp index in HEART_FEATURE_NAMES
-        't0_range': (105, 297),                  # drift onset after calibration
+        'drifted_features': {2},
+        't0_range': (105, 297),
     },
-    # ---------- Hyperplane gradual (covariate: coefficient change on x0) ----------
     'hyperplane_gradual': {
         'dataset': 'hyperplane',
         'drift_type': 'gradual',
@@ -79,9 +73,8 @@ EXPERIMENTS = {
         'drifted_client_proportion': 0.5,
         'drifted_features': {0},
         't0_range': (85, 160),
-        'transition_window': 100,  # ramp over up to 100 rounds (alpha += 0.01/round); if t0 late, ramp may not reach 1.0 by round 200
+        'transition_window': 100,
     },
-    # ---------- Hyperplane gradual LOW (milder drift: smaller magnitude, fewer clients) ----------
     'hyperplane_gradual_low': {
         'dataset': 'hyperplane',
         'drift_type': 'gradual',
@@ -92,13 +85,12 @@ EXPERIMENTS = {
         'n_samples_per_client': 500,
         'n_drift_features': 1,
         'hidden_sizes': [128, 64],
-        'drift_magnitude': 0.15,                    # much milder (was 0.5)
-        'drifted_client_proportion': 0.3,            # fewer drifted clients (was 0.5)
+        'drift_magnitude': 0.15,
+        'drifted_client_proportion': 0.3,
         'drifted_features': {0},
         't0_range': (85, 160),
-        'transition_window': 100,                    # same slow ramp
+        'transition_window': 100,
     },
-    # ---------- Hyperplane gradual VLOW (very mild drift: tiny magnitude, 1 client) ----------
     'hyperplane_gradual_vlow': {
         'dataset': 'hyperplane',
         'drift_type': 'gradual',
@@ -109,13 +101,12 @@ EXPERIMENTS = {
         'n_samples_per_client': 500,
         'n_drift_features': 1,
         'hidden_sizes': [128, 64],
-        'drift_magnitude': 0.05,                     # very mild (was 0.5 original, 0.15 low)
-        'drifted_client_proportion': 0.1,             # only 1 out of 10 clients (was 0.5/0.3)
+        'drift_magnitude': 0.05,
+        'drifted_client_proportion': 0.1,
         'drifted_features': {0},
         't0_range': (85, 160),
         'transition_window': 100,
     },
-    # ---------- Agrawal sudden (concept: function switch 0→1) ----------
     'agrawal_sudden': {
         'dataset': 'agrawal',
         'drift_type': 'sudden',
@@ -128,10 +119,9 @@ EXPERIMENTS = {
         'classification_function_pre': 0,
         'classification_function_post': 1,
         'drifted_client_proportion': 0.5,
-        'drifted_features': {0, 2},              # fn0→{age}, fn1→{age, salary} (River Agrawal)
-        't0_range': (85, 160),                   # after calibration (default cal_end=80)
+        'drifted_features': {0, 2},
+        't0_range': (85, 160),
     },
-    # ---------- Wine Quality sudden (covariate: noise on alcohol) ----------
     'wine_sudden': {
         'dataset': 'wine',
         'drift_type': 'sudden',
@@ -142,25 +132,9 @@ EXPERIMENTS = {
         'hidden_sizes': [64, 32],
         'noise_std': 2.0,
         'drifted_client_proportion': 0.5,
-        'drifted_features': {10},                # alcohol index
-        't0_range': (85, 160),                   # after calibration (default cal_end=80)
+        'drifted_features': {10},
+        't0_range': (85, 160),
     },
-    # ---------- ELEC2 recurring (covariate: noise on nswprice) ----------
-    'elec2_recurring': {
-        'dataset': 'elec2',
-        'drift_type': 'recurring',
-        'drift_mechanism': 'feature_noise',
-        'n_clients': 7,
-        'n_rounds': 400,
-        'n_features': 7,
-        'hidden_sizes': [128, 64],
-        'noise_std': 2.0,
-        'drifted_client_proportion': 0.5,
-        'drifted_features': {0},                 # nswprice index
-        't0_range': (85, 150),
-        'recurring_period': 100,
-    },
-    # ---------- Diabetes gradual (covariate: noise on Glucose) ----------
     'diabetes_gradual': {
         'dataset': 'diabetes',
         'drift_type': 'gradual',
@@ -171,11 +145,10 @@ EXPERIMENTS = {
         'hidden_sizes': [128, 64],
         'noise_std': 2.0,
         'drifted_client_proportion': 0.5,
-        'drifted_features': {1},                 # Glucose index
+        'drifted_features': {1},
         't0_range': (85, 160),
         'transition_window': 20,
     },
-    # ---------- Credit-G sudden (covariate: noise on duration) ----------
     'credit_sudden': {
         'dataset': 'credit',
         'drift_type': 'sudden',
@@ -186,47 +159,12 @@ EXPERIMENTS = {
         'hidden_sizes': [128, 64],
         'noise_std': 2.0,
         'drifted_client_proportion': 0.5,
-        'drifted_features': {1},                 # duration index
+        'drifted_features': {1},
         't0_range': (85, 160),
-    },
-    # ---------- Adult sudden (covariate: noise on capital-gain) ----------
-    'adult_sudden': {
-        'dataset': 'adult',
-        'drift_type': 'sudden',
-        'drift_mechanism': 'feature_noise',
-        'n_clients': 10,
-        'n_rounds': 200,
-        'n_features': 12,
-        'hidden_sizes': [128, 64],
-        'noise_std': 2.0,
-        'drifted_client_proportion': 0.5,
-        'drifted_features': {8},                 # capital-gain index
-        't0_range': (85, 160),
-        'use_all_data_per_client': True,        # full dataset, no sampling
-    },
-    # ---------- Agrawal recurring (concept: function switch 0→1→0) ----------
-    'agrawal_recurring': {
-        'dataset': 'agrawal',
-        'drift_type': 'recurring',
-        'drift_mechanism': 'concept_switch',
-        'n_clients': 10,                         # match agrawal_sudden
-        'n_rounds': 400,                         # match elec2_recurring
-        'n_features': 9,                         # match agrawal_sudden
-        'n_samples_per_client': 1000,
-        'hidden_sizes': [128, 64],               # match agrawal_sudden
-        'classification_function_pre': 0,        # match agrawal_sudden
-        'classification_function_post': 1,       # match agrawal_sudden
-        'drifted_client_proportion': 0.5,
-        'drifted_features': {0, 2},              # fn0→{age}, fn1→{age, salary} (River Agrawal)
-        't0_range': (85, 150),                   # match elec2_recurring
-        'recurring_period': 100,                 # match elec2_recurring
     },
 }
 
 
-# ---------------------------------------------------------------------------
-# Drift schedule helpers
-# ---------------------------------------------------------------------------
 
 def compute_drift_schedule(
     drift_type: str,
@@ -255,7 +193,7 @@ def compute_drift_schedule(
         if round_num < t0:
             return {'active': False, 'alpha': 0.0, 'flip_prob': 0.0}
         elif round_num < t0 + W:
-            alpha = (round_num - t0 + 1) / W   # 1/W .. 1.0
+            alpha = (round_num - t0 + 1) / W
             return {'active': True, 'alpha': alpha,
                     'flip_prob': target_flip * alpha}
         else:
@@ -264,7 +202,7 @@ def compute_drift_schedule(
 
     elif drift_type == 'recurring':
         period = exp_cfg.get('recurring_period', 100)
-        t1 = t0 + period  # reversion point
+        t1 = t0 + period
         if t0 <= round_num < t1:
             return {'active': True, 'alpha': 1.0,
                     'flip_prob': target_flip}
@@ -275,9 +213,6 @@ def compute_drift_schedule(
         raise ValueError(f"Unknown drift_type: {drift_type}")
 
 
-# ---------------------------------------------------------------------------
-# Custom round-data generation (handles gradual + recurring)
-# ---------------------------------------------------------------------------
 
 def get_round_data_custom(
     data_generator,
@@ -305,13 +240,11 @@ def get_round_data_custom(
         return _get_hyperplane_gradual_data(
             data_generator, round_num, drifted_clients, alpha, exp_cfg)
     elif dataset_name == 'agrawal':
-        # Concept switch: no flip_prob, just pre/post classification function
         return data_generator.generate_static_client_data(
             drifted_clients=drifted_clients,
             generate_drifted=active,
         )
     elif mechanism == 'feature_noise':
-        # Covariate drift: generate clean data, then corrupt features for drifted clients
         client_data = data_generator.generate_static_client_data(
             drifted_clients=drifted_clients,
             generate_drifted=False,
@@ -330,7 +263,6 @@ def get_round_data_custom(
                         0, noise_std, size=len(cd.X_val)).astype(cd.X_val.dtype)
         return client_data
     else:
-        # Label-flip datasets: call generate_static_client_data with dynamic flip_prob
         if not active:
             return data_generator.generate_static_client_data(
                 drifted_clients=drifted_clients,
@@ -384,7 +316,6 @@ def _get_hyperplane_gradual_data(
                 yd = np.empty(0, dtype=int)
             X = np.vstack([Xb, Xd])
             y = np.concatenate([yb, yd])
-            # Shuffle
             perm = rng.permutation(len(y))
             X, y = X[perm], y[perm]
         else:
@@ -404,9 +335,6 @@ def _get_hyperplane_gradual_data(
     return client_datasets
 
 
-# ---------------------------------------------------------------------------
-# Main training + detection for one experiment
-# ---------------------------------------------------------------------------
 
 def run_single_experiment(exp_name: str, exp_cfg: dict, seed: int = SEED):
     """Run FL training with custom drift schedule, then detect drift and diagnose."""
@@ -418,7 +346,6 @@ def run_single_experiment(exp_name: str, exp_cfg: dict, seed: int = SEED):
     rng = random.Random(seed)
     t0 = rng.randint(exp_cfg['t0_range'][0], exp_cfg['t0_range'][1])
 
-    # For recurring drift, also compute t1
     t1 = None
     if drift_type == 'recurring':
         t1 = t0 + exp_cfg.get('recurring_period', 100)
@@ -427,7 +354,6 @@ def run_single_experiment(exp_name: str, exp_cfg: dict, seed: int = SEED):
     np.random.seed(seed)
     torch.manual_seed(seed)
 
-    # ---- Timing bookkeeper ----
     timings: Dict[str, float] = {}
 
     print(f"\n{'=' * 60}")
@@ -437,17 +363,16 @@ def run_single_experiment(exp_name: str, exp_cfg: dict, seed: int = SEED):
     print(f"  t0={t0}" + (f", t1={t1}" if t1 else ""))
     print(f"{'=' * 60}")
 
-    # ---- Build config (t0 set far away to prevent trainer's built-in drift) ----
     dataset_config = DatasetConfig(
         name=dataset_name,
         n_features=exp_cfg['n_features'],
         n_samples_per_client=exp_cfg.get('n_samples_per_client', 500),
     )
-    if dataset_name in ('fed_heart', 'elec2', 'wine'):
+    if dataset_name in ('fed_heart', 'wine'):
         dataset_config.drift_condition_feature = exp_cfg.get('drift_condition_feature', 'age')
         dataset_config.drift_condition_threshold = exp_cfg.get('drift_condition_threshold', None)
         dataset_config.drift_flip_prob = exp_cfg.get('drift_flip_prob', 0.3)
-    if dataset_name in ('wine', 'diabetes', 'credit', 'adult'):
+    if dataset_name in ('wine', 'diabetes', 'credit'):
         dataset_config.use_all_data_per_client = exp_cfg.get('use_all_data_per_client', True)
     if dataset_name == 'hyperplane':
         dataset_config.n_drift_features = exp_cfg.get('n_drift_features', 1)
@@ -455,11 +380,8 @@ def run_single_experiment(exp_name: str, exp_cfg: dict, seed: int = SEED):
         dataset_config.classification_function_pre = exp_cfg.get('classification_function_pre', 0)
         dataset_config.classification_function_post = exp_cfg.get('classification_function_post', 1)
 
-    # Set t0 far in the future so trainer's built-in get_round_data never triggers drift
-    # We handle drift ourselves via the custom schedule
     dummy_t0 = n_rounds + 1000
 
-    # experiment_name includes seed → config.output_dir = OUTPUT_DIR / <name>_seed<seed>
     config = ExperimentConfig(
         seed=seed,
         experiment_name=f"{exp_name}_seed{seed}",
@@ -485,18 +407,15 @@ def run_single_experiment(exp_name: str, exp_cfg: dict, seed: int = SEED):
         base_output_dir=OUTPUT_DIR,
     )
 
-    exp_dir = config.output_dir  # results/drift_types/<name>_seed<seed>
+    exp_dir = config.output_dir
 
-    # ---- Create trainer (but we'll override its get_round_data) ----
     trainer = FLTrainer(config)
     drifted_clients = set()
     n_drifted = int(n_clients * exp_cfg.get('drifted_client_proportion', 0.5))
     drifted_clients = set(range(n_clients - n_drifted, n_clients))
 
-    # ---- Monkey-patch get_round_data to use our drift schedule ----
     data_gen = trainer.data_generator
 
-    # Force data loading now so thresholds etc. are set
     if hasattr(data_gen, '_ensure_data'):
         data_gen._ensure_data()
     if hasattr(data_gen, '_ensure_pools'):
@@ -504,7 +423,6 @@ def run_single_experiment(exp_name: str, exp_cfg: dict, seed: int = SEED):
 
     original_get_round_data = trainer.get_round_data
 
-    # Fixed pre-drift data for gradual: same data every round until t0, then blend in drifted
     pre_drift_cache = [None]
 
     def custom_get_round_data(round_num):
@@ -522,14 +440,12 @@ def run_single_experiment(exp_name: str, exp_cfg: dict, seed: int = SEED):
 
     trainer.get_round_data = custom_get_round_data
 
-    # ---- Train ----
     config.create_directories()
     config.save()
 
     print(f"Starting FL training: {exp_name}")
     print(f"  Drifted clients: {drifted_clients}")
 
-    # Diagnostic: show how many samples per client meet drift condition
     if hasattr(data_gen, '_raw_condition_per_hospital') and data_gen._raw_condition_per_hospital is not None:
         thr = data_gen.drift_condition_threshold
         print(f"  Drift condition: {data_gen.drift_condition_feature} >= {thr}")
@@ -558,19 +474,16 @@ def run_single_experiment(exp_name: str, exp_cfg: dict, seed: int = SEED):
     timings['fl_train_total_s'] = fl_train_total
     timings['fl_train_per_round_avg_s'] = float(np.mean(round_times))
 
-    # ---- Save training artefacts ----
     loss_history = trainer.global_loss_series
     loss_matrix = trainer.client_loss_matrix
     np.save(exp_dir / 'loss_history.npy', loss_history)
     np.save(exp_dir / 'loss_matrix.npy', loss_matrix)
 
-    # ---- Compute client weights (w_i = n_i / N) for weighted RDS ----
     round_data_for_weights = trainer.get_round_data(1)
     _client_sizes = np.array([len(round_data_for_weights[i].X_train)
                               for i in range(n_clients)], dtype=np.float64)
     client_weights = _client_sizes / _client_sizes.sum()
 
-    # Save experiment metadata
     meta = {
         'exp_name': exp_name,
         'dataset': dataset_name,
@@ -587,7 +500,6 @@ def run_single_experiment(exp_name: str, exp_cfg: dict, seed: int = SEED):
     with open(exp_dir / 'metadata.json', 'w') as f:
         json.dump(meta, f, indent=2)
 
-    # ---- Drift detection (first change point: t0) ----
     print("  Running drift detection (change point at t0) ...")
     warmup = exp_cfg.get('warmup_rounds', 40)
     cal_start = exp_cfg.get('calibration_start', 41)
@@ -612,12 +524,9 @@ def run_single_experiment(exp_name: str, exp_cfg: dict, seed: int = SEED):
                                   client_weights=client_weights)
     timings['detection_rds_loss_s'] = time.perf_counter() - detect_start
 
-    # ---- For recurring drift: also detect second change point (t1) ----
     results_t1 = None
     if drift_type == 'recurring' and t1 is not None:
         print(f"  Running drift detection (reversion at t1={t1}) ...")
-        # For t1 detection, we use the loss from t0+20 onward as a new calibration
-        # Re-calibrate on the drifted regime, then detect the reversion
         recal_start = min(t0 + 10, t1 - 30)
         recal_end = min(t0 + 40, t1 - 5)
         if recal_end > recal_start + 5:
@@ -635,11 +544,9 @@ def run_single_experiment(exp_name: str, exp_cfg: dict, seed: int = SEED):
                 cusum_h=7.0,
                 fwer_p=0.05,
             )
-                # detector2 uses default require_loss_increase=False (detect any shift, including reversion)
             results_t1 = detector2.detect(loss_matrix, np.array(loss_history), t1,
                                           client_weights=client_weights)
 
-    # ---- Save detection results ----
     def _format_result(res_dict, ground_truth_t):
         out = {}
         for method, r in res_dict.items():
@@ -666,18 +573,15 @@ def run_single_experiment(exp_name: str, exp_cfg: dict, seed: int = SEED):
     with open(exp_dir / 'trigger_results.json', 'w') as f:
         json.dump(trigger_data, f, indent=2)
 
-    # ---- Save RDS scores for plotting ----
     rds = results_t0.get('rds')
     if rds and rds.all_scores is not None:
         np.save(exp_dir / 'rds_scores.npy', rds.all_scores)
     if rds and rds.threshold_series is not None:
         np.save(exp_dir / 'rds_thresholds.npy', rds.threshold_series)
 
-    # ---- Plot ----
     plots_dir = exp_dir / 'plots'
     plots_dir.mkdir(exist_ok=True)
 
-    # Find best detector for display
     candidates = []
     for method, r in results_t0.items():
         if r.triggered and r.trigger_round is not None:
@@ -703,7 +607,6 @@ def run_single_experiment(exp_name: str, exp_cfg: dict, seed: int = SEED):
         save_path=plots_dir / 'loss_rds_detection.png',
     )
 
-    # ---- Print summary ----
     print(f"\n  Results for {exp_name}:")
     print(f"    t0={t0}" + (f", t1={t1}" if t1 else ""))
     for method, r in results_t0.items():
@@ -732,11 +635,9 @@ def run_single_experiment(exp_name: str, exp_cfg: dict, seed: int = SEED):
 
     print(f"  Saved to: {exp_dir}")
 
-    # ---- Diagnosis: compute SAGE/PFI/SHAP + Dist(FI) RDS + metrics ----
-    # Diagnosis runs only when the RDS detector has triggered.
     rds_result = results_t0.get('rds')
     if rds_result and rds_result.triggered and rds_result.trigger_round is not None:
-        trigger_round = rds_result.trigger_round + 1  # 1-indexed
+        trigger_round = rds_result.trigger_round + 1
     else:
         trigger_round = None
 
@@ -749,10 +650,6 @@ def run_single_experiment(exp_name: str, exp_cfg: dict, seed: int = SEED):
             ground_truth = set(ground_truth)
         feature_names = trainer.get_feature_names()
 
-        # For concept drift (label_flip / concept_switch): use pre-drift
-        # data at trigger round so FI isolates model changes.
-        # For covariate drift (feature_noise / coeff_change): use actual
-        # drifted data — the noise IS the signal we want FI to detect.
         mechanism = exp_cfg.get('drift_mechanism', 'label_flip')
         _diag_get_round_data = trainer.get_round_data
 
@@ -763,7 +660,6 @@ def run_single_experiment(exp_name: str, exp_cfg: dict, seed: int = SEED):
                     return _inner(round_num - 1)
                 return _inner(round_num)
             trainer.get_round_data = _ref_get_round_data
-        # else: keep get_round_data as-is (serves drifted data)
 
         diag_start = time.perf_counter()
         engine = DiagnosisEngine(config, trainer)
@@ -772,7 +668,6 @@ def run_single_experiment(exp_name: str, exp_cfg: dict, seed: int = SEED):
         diag_total = time.perf_counter() - diag_start
         timings['diagnosis_total_s'] = diag_total
 
-        # ---- SAGE timing stats for the trigger round ----
         sage_client_times = diag_results.get('sage_trigger_client_times', [])
         n_diag_rounds = len(diag_results.get('diagnosis_rounds', []))
         timings['sage_fi_compute_total_s'] = diag_results.get('fi_compute_time_s', 0.0)
@@ -784,17 +679,13 @@ def run_single_experiment(exp_name: str, exp_cfg: dict, seed: int = SEED):
                 timings['sage_trigger_client_mean_s'] = float(arr.mean())
                 timings['sage_trigger_client_median_s'] = float(np.median(arr))
 
-        # Restore original get_round_data
         trainer.get_round_data = _diag_get_round_data
 
-        # Extract rankings from Dist(FI) results
         rankings = engine.get_feature_rankings(diag_results)
 
-        # Compute metrics for each ranking: Hits@1, Hits@2, MRR
         diag_dir = exp_dir / 'diagnosis'
         diag_dir.mkdir(parents=True, exist_ok=True)
 
-        # Save FI matrices + rankings to seed-specific dir
         engine.save_results(diag_results, diag_dir)
 
         print(f"\n  Diagnosis results (ground truth drifted features: {ground_truth}):")
@@ -818,15 +709,10 @@ def run_single_experiment(exp_name: str, exp_cfg: dict, seed: int = SEED):
                 'mrr': m_full.mrr,
                 'scores': None,
             }
-            # Attach scores from the matching diagnosis result
             if method_name in diag_results.get('dist_fi', {}):
                 result_obj = diag_results['dist_fi'][method_name]
                 all_metrics[method_name]['scores'] = result_obj.rds_scores.tolist()
-            elif method_name in diag_results.get('delta_fi', {}):
-                result_obj = diag_results['delta_fi'][method_name]
-                all_metrics[method_name]['scores'] = result_obj.delta_scores.tolist()
 
-        # Recurring: run diagnosis at t1 as well and average metrics
         if drift_type == 'recurring' and results_t1 is not None:
             rds_t1 = results_t1.get('rds')
             if rds_t1 and rds_t1.triggered and rds_t1.trigger_round is not None:
@@ -845,7 +731,6 @@ def run_single_experiment(exp_name: str, exp_cfg: dict, seed: int = SEED):
                         'hits_at_2': m2.hits_at_k,
                         'mrr': m_full.mrr,
                     }
-                # Average metrics over t0 and t1
                 for method_name in all_metrics:
                     if method_name in all_metrics_t1:
                         all_metrics[method_name]['hits_at_1'] = (
@@ -859,12 +744,10 @@ def run_single_experiment(exp_name: str, exp_cfg: dict, seed: int = SEED):
                         ) / 2.0
                 print(f"  Averaged diagnosis metrics over t0 and t1.")
 
-        # Save
         with open(diag_dir / 'diagnosis_metrics.json', 'w') as f:
             json.dump(all_metrics, f, indent=2)
         print(f"  Diagnosis saved to: {diag_dir}")
 
-    # ---- Save timings CSV ----
     timings_path = exp_dir / 'timings.csv'
     with open(timings_path, 'w', newline='') as f:
         writer = csv.writer(f)
@@ -876,9 +759,6 @@ def run_single_experiment(exp_name: str, exp_cfg: dict, seed: int = SEED):
     return trigger_data
 
 
-# ---------------------------------------------------------------------------
-# Diagnosis only (load existing checkpoints, run SAGE/PFI/SHAP diagnosis)
-# ---------------------------------------------------------------------------
 
 def _restore_exp_cfg(meta_cfg: dict) -> dict:
     """Restore exp_cfg from metadata JSON (lists -> sets/tuples where needed)."""
@@ -921,8 +801,6 @@ def run_diagnosis_only(exp_dir: Path) -> None:
     n_clients = meta['n_clients']
     drifted_clients = set(meta['drifted_clients'])
 
-    # Trigger round from RDS or first detector that triggered
-    # Diagnosis only runs when RDS triggered
     rds_info = trigger_data.get('detection_t0', {}).get('rds', {})
     if rds_info.get('triggered') and rds_info.get('round') is not None:
         trigger_round = rds_info['round']
@@ -932,23 +810,21 @@ def run_diagnosis_only(exp_dir: Path) -> None:
         print("  RDS did not trigger — skipping diagnosis.")
         return
 
-    # Derive seed-aware experiment name from the directory name (e.g. "fed_heart_sudden_seed42")
-    seed_exp_name = exp_dir.name  # already includes seed
+    seed_exp_name = exp_dir.name
     print(f"\nDiagnosis-only: {seed_exp_name}")
     print(f"  Trigger round: {trigger_round}, t0={t0}")
     print(f"  Checkpoints: {OUTPUT_DIR / seed_exp_name / 'checkpoints'}")
 
-    # Build config so checkpoints_dir points to existing checkpoints
     dataset_config = DatasetConfig(
         name=dataset_name,
         n_features=exp_cfg['n_features'],
         n_samples_per_client=exp_cfg.get('n_samples_per_client', 500),
     )
-    if dataset_name in ('fed_heart', 'elec2', 'wine'):
+    if dataset_name in ('fed_heart', 'wine'):
         dataset_config.drift_condition_feature = exp_cfg.get('drift_condition_feature', 'age')
         dataset_config.drift_condition_threshold = exp_cfg.get('drift_condition_threshold', None)
         dataset_config.drift_flip_prob = exp_cfg.get('drift_flip_prob', 0.3)
-    if dataset_name in ('wine', 'diabetes', 'credit', 'adult'):
+    if dataset_name in ('wine', 'diabetes', 'credit'):
         dataset_config.use_all_data_per_client = exp_cfg.get('use_all_data_per_client', True)
     if dataset_name == 'hyperplane':
         dataset_config.n_drift_features = exp_cfg.get('n_drift_features', 1)
@@ -982,7 +858,6 @@ def run_diagnosis_only(exp_dir: Path) -> None:
         base_output_dir=OUTPUT_DIR,
     )
 
-    # Create trainer and patch get_round_data (same as full run)
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -1005,8 +880,6 @@ def run_diagnosis_only(exp_dir: Path) -> None:
         ground_truth = set(ground_truth)
     feature_names = trainer.get_feature_names()
 
-    # For concept drift: redirect trigger round to pre-drift data.
-    # For covariate drift: use actual drifted data (noise IS the signal).
     mechanism = exp_cfg.get('drift_mechanism', 'label_flip')
     _diag_get_round_data = trainer.get_round_data
 
@@ -1017,7 +890,6 @@ def run_diagnosis_only(exp_dir: Path) -> None:
             return _inner(round_num)
         trainer.get_round_data = _ref_get_round_data
 
-    # Compute client weights for weighted RDS / weighted mean
     _rd = trainer.get_round_data(1)
     _csz = np.array([len(_rd[i].X_train) for i in range(n_clients)], dtype=np.float64)
     client_weights = _csz / _csz.sum()
@@ -1032,7 +904,6 @@ def run_diagnosis_only(exp_dir: Path) -> None:
     diag_dir = exp_dir / 'diagnosis'
     diag_dir.mkdir(parents=True, exist_ok=True)
 
-    # Save FI matrices + rankings to seed-specific dir
     engine.save_results(diag_results, diag_dir)
 
     print(f"\n  Diagnosis results (ground truth drifted features: {ground_truth}):")
@@ -1057,18 +928,12 @@ def run_diagnosis_only(exp_dir: Path) -> None:
         if method_name in diag_results.get('dist_fi', {}):
             result_obj = diag_results['dist_fi'][method_name]
             all_metrics[method_name]['scores'] = result_obj.rds_scores.tolist()
-        elif method_name in diag_results.get('delta_fi', {}):
-            result_obj = diag_results['delta_fi'][method_name]
-            all_metrics[method_name]['scores'] = result_obj.delta_scores.tolist()
 
     with open(diag_dir / 'diagnosis_metrics.json', 'w') as f:
         json.dump(all_metrics, f, indent=2)
     print(f"  Diagnosis saved to: {diag_dir}")
 
 
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
 
 def main():
     parser = argparse.ArgumentParser(description='Drift-type experiments.')
@@ -1081,7 +946,7 @@ def main():
     parser.add_argument('--redetect', action='store_true',
                         help='Re-run detection only (no training)')
     parser.add_argument('--diagnose-only', type=str, default=None, metavar='DIR',
-                        help='Run diagnosis only on existing run (e.g. adult_gradual_seed42)')
+                        help='Run diagnosis only on existing run (e.g. wine_sudden_seed42)')
     parser.add_argument('--tiny', action='store_true',
                         help='Quick sanity check: override n_rounds=30, force t0=15')
     args = parser.parse_args()
@@ -1097,7 +962,6 @@ def main():
             traceback.print_exc()
         return
 
-    # Resolve seed list: --seeds takes priority, then --seed, then default
     if args.seeds is not None:
         seeds = args.seeds
     elif args.seed is not None:
@@ -1116,10 +980,10 @@ def main():
             if name not in EXPERIMENTS:
                 print(f"  WARNING: unknown experiment '{name}', skipping")
                 continue
-            exp_cfg = dict(EXPERIMENTS[name])  # copy so overrides don't persist
+            exp_cfg = dict(EXPERIMENTS[name])
             if args.tiny:
                 exp_cfg['n_rounds'] = 30
-                exp_cfg['t0_range'] = (15, 15)  # fixed t0=15
+                exp_cfg['t0_range'] = (15, 15)
                 exp_cfg['n_samples_per_client'] = exp_cfg.get('n_samples_per_client', 500)
                 if exp_cfg['n_samples_per_client'] > 500:
                     exp_cfg['n_samples_per_client'] = 500

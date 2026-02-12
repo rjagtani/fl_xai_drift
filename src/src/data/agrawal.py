@@ -27,22 +27,19 @@ class AgrawalDataGenerator(BaseDataGenerator):
     Different functions emphasize different features, enabling controlled drift.
     """
     
-    # Feature names for Agrawal dataset
     FEATURE_NAMES = ['salary', 'commission', 'age', 'elevel', 'car', 'zipcode', 'hvalue', 'hyears', 'loan']
     
-    # Mapping of classification functions to their relevant features (indices)
-    # These are approximations based on the Agrawal function definitions
     FUNCTION_RELEVANT_FEATURES = {
-        0: {2},  # age
-        1: {2, 3},  # age, elevel
-        2: {2, 3, 0},  # age, elevel, salary
-        3: {2, 3, 0, 1},  # age, elevel, salary, commission
-        4: {2, 0, 1, 6},  # age, salary, commission, hvalue
-        5: {2, 0, 4},  # age, salary, car
-        6: {2, 0, 3, 7},  # age, salary, elevel, hyears
-        7: {2, 0, 6, 8},  # age, salary, hvalue, loan
-        8: {2, 0, 1, 5},  # age, salary, commission, zipcode
-        9: {2, 0, 1, 6, 8},  # age, salary, commission, hvalue, loan
+        0: {2},
+        1: {2, 3},
+        2: {2, 3, 0},
+        3: {2, 3, 0, 1},
+        4: {2, 0, 1, 6},
+        5: {2, 0, 4},
+        6: {2, 0, 3, 7},
+        7: {2, 0, 6, 8},
+        8: {2, 0, 1, 5},
+        9: {2, 0, 1, 6, 8},
     }
     
     def __init__(
@@ -65,15 +62,12 @@ class AgrawalDataGenerator(BaseDataGenerator):
         self.classification_function_pre = classification_function_pre
         self.classification_function_post = classification_function_post
         
-        # Drifted features are the difference in relevant features between functions
         pre_features = self.FUNCTION_RELEVANT_FEATURES.get(classification_function_pre, set())
         post_features = self.FUNCTION_RELEVANT_FEATURES.get(classification_function_post, set())
         self._drifted_feature_indices = pre_features.symmetric_difference(post_features)
         
-        # Label encoders for categorical features
         self._label_encoders: Dict[str, LabelEncoder] = {}
         
-        # Scaler for normalization (fit once on first batch)
         self._scaler: Optional[StandardScaler] = None
         self._scaler_fitted = False
     
@@ -90,11 +84,9 @@ class AgrawalDataGenerator(BaseDataGenerator):
         features = []
         for fname in self.FEATURE_NAMES:
             val = x[fname]
-            # Encode categorical features
             if fname in ['elevel', 'car', 'zipcode']:
                 if fname not in self._label_encoders:
                     self._label_encoders[fname] = LabelEncoder()
-                    # Pre-fit with possible values
                     if fname == 'elevel':
                         self._label_encoders[fname].fit([0, 1, 2, 3, 4])
                     elif fname == 'car':
@@ -104,7 +96,6 @@ class AgrawalDataGenerator(BaseDataGenerator):
                 try:
                     val = self._label_encoders[fname].transform([val])[0]
                 except ValueError:
-                    # Handle unseen values
                     val = 0
             features.append(val)
         features.append(y)
@@ -115,7 +106,7 @@ class AgrawalDataGenerator(BaseDataGenerator):
         round_num: int,
         t0: int,
         drifted_clients: Set[int],
-        drift_magnitude: float,  # Not used for Agrawal (concept switch is binary)
+        drift_magnitude: float,
     ) -> Dict[int, ClientDataset]:
         """
         Generate data for all clients for a given round.
@@ -132,45 +123,38 @@ class AgrawalDataGenerator(BaseDataGenerator):
         Returns:
             Dictionary mapping client_id to ClientDataset
         """
-        # For Agrawal: ALL clients switch classification function at drift onset
-        is_drift_phase = round_num >= t0  # Changed from > to >= to match other datasets
+        is_drift_phase = round_num >= t0
         client_datasets = {}
         
         for client_id in range(self.n_clients):
-            # ALL clients use post-drift function after t0 (global concept drift)
             if is_drift_phase:
                 clf_fn = self.classification_function_post
             else:
                 clf_fn = self.classification_function_pre
             
-            # Create stream
             stream = synth.Agrawal(
                 classification_function=clf_fn,
                 seed=self.seed + client_id + round_num * 1000,
             )
             
-            # Generate samples
             data = []
             for x, y in stream.take(self.n_samples_per_client):
                 data.append(self._process_sample(x, y))
             
-            data = np.array(data, dtype=np.float64)  # Use float64 for scaler
+            data = np.array(data, dtype=np.float64)
             X = data[:, :-1]
             y = data[:, -1].astype(int)
             
-            # Fit scaler on first batch (round 1, client 0)
             if not self._scaler_fitted and client_id == 0:
                 self._scaler = StandardScaler()
                 self._scaler.fit(X)
                 self._scaler_fitted = True
             
-            # Normalize features
             if self._scaler is not None:
                 X = self._scaler.transform(X).astype(np.float32)
             else:
                 X = X.astype(np.float32)
             
-            # Split into train/val
             X_train, X_val, y_train, y_val = train_test_split(
                 X, y,
                 test_size=self.test_size,
@@ -184,7 +168,7 @@ class AgrawalDataGenerator(BaseDataGenerator):
                 y_train=y_train,
                 X_val=X_val,
                 y_val=y_val,
-                is_drifted=is_drift_phase,  # ALL clients are drifted after t0
+                is_drifted=is_drift_phase,
             )
         
         return client_datasets
@@ -227,13 +211,11 @@ class AgrawalDataGenerator(BaseDataGenerator):
             X = data[:, :-1]
             y = data[:, -1].astype(int)
             
-            # Fit scaler on first batch if not already fitted
             if not self._scaler_fitted and client_id == 0:
                 self._scaler = StandardScaler()
                 self._scaler.fit(X)
                 self._scaler_fitted = True
             
-            # Normalize features
             if self._scaler is not None:
                 X = self._scaler.transform(X).astype(np.float32)
             else:

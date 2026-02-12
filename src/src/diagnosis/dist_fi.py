@@ -15,19 +15,18 @@ from dataclasses import dataclass
 class DistFIResult:
     """Result of Dist(FI) diagnosis."""
     
-    method: str  # 'sage', 'pfi', or 'shap'
-    rds_scores: np.ndarray  # Shape: (n_features,) - Final RDS at trigger round
-    feature_ranking: np.ndarray  # Indices sorted by RDS (descending)
-    wasserstein_distances: np.ndarray  # Raw Wasserstein distances
-    past_stds: np.ndarray  # Standard deviations of past distributions
+    method: str
+    rds_scores: np.ndarray
+    feature_ranking: np.ndarray
+    wasserstein_distances: np.ndarray
+    past_stds: np.ndarray
     
-    # Within-window calibration results (optional)
-    rds_series: Optional[np.ndarray] = None  # Shape: (n_check_rounds, n_features) - RDS over time
-    rds_rounds: Optional[List[int]] = None  # Round indices where RDS was computed
-    thresholds: Optional[np.ndarray] = None  # Shape: (n_features,) - Calibrated thresholds per feature
-    triggered_features: Optional[np.ndarray] = None  # Boolean array of features that exceeded threshold
-    calibration_mu: Optional[np.ndarray] = None  # Per-feature mu from calibration
-    calibration_sigma: Optional[np.ndarray] = None  # Per-feature sigma from calibration
+    rds_series: Optional[np.ndarray] = None
+    rds_rounds: Optional[List[int]] = None
+    thresholds: Optional[np.ndarray] = None
+    triggered_features: Optional[np.ndarray] = None
+    calibration_mu: Optional[np.ndarray] = None
+    calibration_sigma: Optional[np.ndarray] = None
 
 
 class DistFIDiagnosis:
@@ -50,9 +49,9 @@ class DistFIDiagnosis:
     def __init__(
         self,
         eps: float = 1e-6,
-        rds_window: int = 5,  # Window size for computing RDS (past rounds)
-        n_calibration: int = 3,  # Number of RDS values for calibration
-        alpha: float = 2.33,  # Threshold multiplier (z-score for ~1% FPR)
+        rds_window: int = 5,
+        n_calibration: int = 3,
+        alpha: float = 2.33,
     ):
         self.eps = eps
         self.rds_window = rds_window
@@ -61,9 +60,9 @@ class DistFIDiagnosis:
     
     def compute_rds_at_round(
         self,
-        fi_matrix: np.ndarray,  # Shape: (n_rounds, n_clients, n_features)
-        current_idx: int,  # Index of current round
-        past_start_idx: int,  # Start index of past window
+        fi_matrix: np.ndarray,
+        current_idx: int,
+        past_start_idx: int,
     ) -> np.ndarray:
         """
         Compute RDS for all features at a single round.
@@ -78,8 +77,8 @@ class DistFIDiagnosis:
         """
         n_rounds, n_clients, n_features = fi_matrix.shape
         
-        current_fi = fi_matrix[current_idx]  # (n_clients, n_features)
-        past_fi = fi_matrix[past_start_idx:current_idx]  # (past_rounds, n_clients, n_features)
+        current_fi = fi_matrix[current_idx]
+        past_fi = fi_matrix[past_start_idx:current_idx]
         
         rds_scores = np.zeros(n_features)
         
@@ -87,7 +86,6 @@ class DistFIDiagnosis:
             current_dist = current_fi[:, j]
             past_dist = past_fi[:, :, j].flatten()
             
-            # Handle NaN
             current_dist = current_dist[~np.isnan(current_dist)]
             past_dist = past_dist[~np.isnan(past_dist)]
             
@@ -103,8 +101,8 @@ class DistFIDiagnosis:
     
     def compute_rds_with_calibration(
         self,
-        fi_matrix: np.ndarray,  # Shape: (window_size, n_clients, n_features)
-        diagnosis_rounds: List[int],  # Actual round numbers
+        fi_matrix: np.ndarray,
+        diagnosis_rounds: List[int],
     ) -> DistFIResult:
         """
         Compute RDS with within-window calibration.
@@ -128,51 +126,40 @@ class DistFIDiagnosis:
         """
         n_rounds, n_clients, n_features = fi_matrix.shape
         
-        # Calculate how many RDS values we can compute
-        # First RDS can be computed at index rds_window (need rds_window past rounds)
         first_rds_idx = self.rds_window
-        n_rds_rounds = n_rounds - first_rds_idx  # Number of RDS values we can compute
+        n_rds_rounds = n_rounds - first_rds_idx
         
         if n_rds_rounds < 1:
             raise ValueError(f"Not enough rounds for RDS computation. "
                            f"Need at least {self.rds_window + 1} rounds, got {n_rounds}")
         
-        # Compute RDS for all available rounds
         rds_series = np.zeros((n_rds_rounds, n_features))
         rds_round_indices = []
         
         for i in range(n_rds_rounds):
             current_idx = first_rds_idx + i
-            past_start_idx = i  # past window: [i, i + rds_window) = rds_window rounds
+            past_start_idx = i
             rds_series[i] = self.compute_rds_at_round(fi_matrix, current_idx, past_start_idx)
             rds_round_indices.append(diagnosis_rounds[current_idx])
         
-        # Calibration: use all but last RDS value for mu, sigma
         n_calibration_actual = min(self.n_calibration, n_rds_rounds - 1)
         if n_calibration_actual < 1:
-            # Not enough for calibration, use simple approach
             calibration_mu = np.zeros(n_features)
-            calibration_sigma = np.ones(n_features) * 0.1  # Small default
+            calibration_sigma = np.ones(n_features) * 0.1
         else:
-            # Use last n_calibration rounds before trigger for calibration
-            calibration_rds = rds_series[-(n_calibration_actual + 1):-1]  # Exclude last (trigger)
+            calibration_rds = rds_series[-(n_calibration_actual + 1):-1]
             calibration_mu = np.mean(calibration_rds, axis=0)
             calibration_sigma = np.std(calibration_rds, axis=0, ddof=1)
-            calibration_sigma = np.maximum(calibration_sigma, 0.01)  # Avoid zero sigma
+            calibration_sigma = np.maximum(calibration_sigma, 0.01)
         
-        # Compute threshold per feature
         thresholds = calibration_mu + self.alpha * calibration_sigma
         
-        # Final RDS at trigger round (last round)
         final_rds = rds_series[-1]
         
-        # Check which features exceeded threshold
         triggered_features = final_rds > thresholds
         
-        # Rank features by RDS (descending)
         feature_ranking = np.argsort(final_rds)[::-1]
         
-        # Also compute raw Wasserstein distances and past stds for the trigger round
         trigger_idx = n_rounds - 1
         past_start = trigger_idx - self.rds_window
         current_fi = fi_matrix[trigger_idx]
@@ -190,7 +177,7 @@ class DistFIDiagnosis:
                 past_stds[j] = np.std(past_dist)
         
         return DistFIResult(
-            method='',  # To be set by caller
+            method='',
             rds_scores=final_rds,
             feature_ranking=feature_ranking,
             wasserstein_distances=wasserstein_dists,
@@ -205,8 +192,8 @@ class DistFIDiagnosis:
     
     def compute_rds(
         self,
-        fi_matrix: np.ndarray,  # Shape: (window_size+1, n_clients, n_features)
-        trigger_idx: int = -1,  # Index of trigger round in the window (default: last)
+        fi_matrix: np.ndarray,
+        trigger_idx: int = -1,
     ) -> DistFIResult:
         """
         Compute RDS scores for all features (simple version without calibration).
@@ -220,25 +207,21 @@ class DistFIDiagnosis:
         """
         n_rounds, n_clients, n_features = fi_matrix.shape
         
-        # Separate current (trigger) and past rounds
         if trigger_idx == -1:
             trigger_idx = n_rounds - 1
         
-        current_fi = fi_matrix[trigger_idx]  # Shape: (n_clients, n_features)
-        past_fi = fi_matrix[:trigger_idx]  # Shape: (past_rounds, n_clients, n_features)
+        current_fi = fi_matrix[trigger_idx]
+        past_fi = fi_matrix[:trigger_idx]
         
         rds_scores = np.zeros(n_features)
         wasserstein_dists = np.zeros(n_features)
         past_stds = np.zeros(n_features)
         
         for j in range(n_features):
-            # Current distribution: FI values across clients at trigger
-            current_dist = current_fi[:, j]  # Shape: (n_clients,)
+            current_dist = current_fi[:, j]
             
-            # Past distribution: FI values across all past rounds and clients
-            past_dist = past_fi[:, :, j].flatten()  # Shape: (past_rounds * n_clients,)
+            past_dist = past_fi[:, :, j].flatten()
             
-            # Handle NaN values
             current_dist = current_dist[~np.isnan(current_dist)]
             past_dist = past_dist[~np.isnan(past_dist)]
             
@@ -248,24 +231,20 @@ class DistFIDiagnosis:
                 past_stds[j] = 0.0
                 continue
             
-            # Compute Wasserstein distance
             w_dist = wasserstein_distance(current_dist, past_dist)
             
-            # Compute std of past distribution
             std_past = np.std(past_dist)
             
-            # Compute RDS
             rds = w_dist / (std_past + self.eps)
             
             rds_scores[j] = rds
             wasserstein_dists[j] = w_dist
             past_stds[j] = std_past
         
-        # Rank features by RDS (descending)
         feature_ranking = np.argsort(rds_scores)[::-1]
         
         return DistFIResult(
-            method='',  # To be set by caller
+            method='',
             rds_scores=rds_scores,
             feature_ranking=feature_ranking,
             wasserstein_distances=wasserstein_dists,
@@ -274,7 +253,7 @@ class DistFIDiagnosis:
     
     def diagnose(
         self,
-        fi_matrices: Dict[str, np.ndarray],  # method -> (rounds, clients, features)
+        fi_matrices: Dict[str, np.ndarray],
         trigger_idx: int = -1,
     ) -> Dict[str, DistFIResult]:
         """
@@ -298,8 +277,8 @@ class DistFIDiagnosis:
     
     def diagnose_with_calibration(
         self,
-        fi_matrices: Dict[str, np.ndarray],  # method -> (rounds, clients, features)
-        diagnosis_rounds: List[int],  # Round numbers for the FI matrices
+        fi_matrices: Dict[str, np.ndarray],
+        diagnosis_rounds: List[int],
     ) -> Dict[str, DistFIResult]:
         """
         Run Dist(FI) diagnosis with within-window calibration.
@@ -342,14 +321,12 @@ class DistFIWithClients(DistFIDiagnosis):
         if trigger_idx == -1:
             trigger_idx = n_rounds - 1
         
-        current_fi = fi_matrix[trigger_idx]  # (n_clients, n_features)
-        past_fi = fi_matrix[:trigger_idx]  # (past_rounds, n_clients, n_features)
+        current_fi = fi_matrix[trigger_idx]
+        past_fi = fi_matrix[:trigger_idx]
         
-        # Compute past mean per feature
-        past_mean = np.nanmean(past_fi, axis=(0, 1))  # (n_features,)
-        past_std = np.nanstd(past_fi, axis=(0, 1))  # (n_features,)
+        past_mean = np.nanmean(past_fi, axis=(0, 1))
+        past_std = np.nanstd(past_fi, axis=(0, 1))
         
-        # Z-score of current values relative to past
         contributions = (current_fi - past_mean) / (past_std + self.eps)
         
         return contributions

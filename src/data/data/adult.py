@@ -13,7 +13,6 @@ from sklearn.datasets import fetch_openml
 
 from .base import BaseDataGenerator, ClientDataset
 
-# Exclude education-num (redundant with education); education used only for client split
 ADULT_FEATURE_NAMES = [
     'age', 'workclass', 'fnlwgt', 'marital-status', 'occupation',
     'relationship', 'race', 'sex', 'capital-gain', 'capital-loss', 'hours-per-week', 'native-country',
@@ -23,7 +22,7 @@ COL_ALIASES = {
     'hours.per.week': 'hours-per-week', 'marital.status': 'marital-status', 'native.country': 'native-country',
 }
 NUMERIC_COLS = ["age", "fnlwgt", "capital-gain", "capital-loss", "hours-per-week"]
-TARGET_ENCODE_SMOOTHING = 1  # Blend category mean with global mean to reduce overfitting
+TARGET_ENCODE_SMOOTHING = 1
 
 
 class AdultDataGenerator(BaseDataGenerator):
@@ -52,11 +51,11 @@ class AdultDataGenerator(BaseDataGenerator):
         self._X_full: Optional[np.ndarray] = None
         self._y_full: Optional[np.ndarray] = None
         self._client_to_indices: Optional[Dict[int, np.ndarray]] = None
-        self._condition_col: int = 0  # Index of drift condition feature (resolved after loading)
+        self._condition_col: int = 0
         self._scaler: Optional[StandardScaler] = None
-        self._target_encodings: Dict[str, Dict[str, float]] = {}  # col -> {category: encoded_value}
+        self._target_encodings: Dict[str, Dict[str, float]] = {}
         self._feature_names: List[str] = ADULT_FEATURE_NAMES.copy()
-        self._raw_condition: Optional[np.ndarray] = None  # Raw values of drift condition feature
+        self._raw_condition: Optional[np.ndarray] = None
 
     def _target_encode_column(self, series: pd.Series, y: np.ndarray, smoothing: int = TARGET_ENCODE_SMOOTHING) -> np.ndarray:
         """Replace categories with smoothed mean of target (blend with global mean)."""
@@ -93,7 +92,6 @@ class AdultDataGenerator(BaseDataGenerator):
         X = np.column_stack(X_list)
         self._feature_names = feature_cols
         self.n_features = len(feature_cols)
-        # Resolve drift condition column index
         if self.drift_condition_feature in feature_cols:
             self._condition_col = feature_cols.index(self.drift_condition_feature)
         else:
@@ -128,9 +126,7 @@ class AdultDataGenerator(BaseDataGenerator):
             return
         X, y, education_labels = self._load_and_preprocess()
         self._client_to_indices = self._build_client_indices(X, education_labels)
-        # Store raw condition column BEFORE scaling (for drift condition check)
         self._raw_condition = X[:, self._condition_col].copy()
-        # Auto-set threshold as median if threshold is None
         if self.drift_condition_threshold is None:
             self.drift_condition_threshold = float(np.median(self._raw_condition))
         self._scaler = StandardScaler()

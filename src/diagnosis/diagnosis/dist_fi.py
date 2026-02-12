@@ -22,19 +22,18 @@ from dataclasses import dataclass
 class DistFIResult:
     """Result of Dist(FI) diagnosis."""
     
-    method: str  # 'sage', 'pfi', or 'shap'
-    rds_scores: np.ndarray  # Shape: (n_features,) - Final RDS at trigger round
-    feature_ranking: np.ndarray  # Indices sorted by RDS (descending)
-    wasserstein_distances: np.ndarray  # Raw Wasserstein distances
-    past_stds: np.ndarray  # Standard deviations of past distributions
+    method: str
+    rds_scores: np.ndarray
+    feature_ranking: np.ndarray
+    wasserstein_distances: np.ndarray
+    past_stds: np.ndarray
     
-    # Within-window calibration results (optional)
-    rds_series: Optional[np.ndarray] = None  # Shape: (n_check_rounds, n_features) - RDS over time
-    rds_rounds: Optional[List[int]] = None  # Round indices where RDS was computed
-    thresholds: Optional[np.ndarray] = None  # Shape: (n_features,) - Calibrated thresholds per feature
-    triggered_features: Optional[np.ndarray] = None  # Boolean array of features that exceeded threshold
-    calibration_mu: Optional[np.ndarray] = None  # Per-feature mu from calibration
-    calibration_sigma: Optional[np.ndarray] = None  # Per-feature sigma from calibration
+    rds_series: Optional[np.ndarray] = None
+    rds_rounds: Optional[List[int]] = None
+    thresholds: Optional[np.ndarray] = None
+    triggered_features: Optional[np.ndarray] = None
+    calibration_mu: Optional[np.ndarray] = None
+    calibration_sigma: Optional[np.ndarray] = None
 
 
 def _weighted_wasserstein(
@@ -62,7 +61,7 @@ def _weighted_std(values: np.ndarray, weights: Optional[np.ndarray]) -> float:
 
 
 def _build_weights_for_round(
-    fi_row: np.ndarray,        # (n_clients,) FI for one feature at one round
+    fi_row: np.ndarray,
     client_weights: Optional[np.ndarray],
 ):
     """Return (clean_values, clean_weights) with NaNs removed and weights renormalised."""
@@ -93,21 +92,20 @@ class DistFIDiagnosis:
     def __init__(
         self,
         eps: float = 1e-6,
-        rds_window: int = 5,  # Window size for computing RDS (past rounds)
+        rds_window: int = 5,
     ):
         self.eps = eps
         self.rds_window = rds_window
     
     def _rds_for_feature(
         self,
-        current_fi_j: np.ndarray,   # (n_clients,)
-        past_fi_j: np.ndarray,      # (R, n_clients)
+        current_fi_j: np.ndarray,
+        past_fi_j: np.ndarray,
         client_weights: Optional[np.ndarray],
     ) -> tuple:
         """Compute RDS, W-dist, past-std for a single feature j."""
         n_past, n_clients = past_fi_j.shape
 
-        # Current
         cur_mask = ~np.isnan(current_fi_j)
         cur_vals = current_fi_j[cur_mask]
         if client_weights is not None:
@@ -116,7 +114,6 @@ class DistFIDiagnosis:
         else:
             cur_w = None
 
-        # Past (flatten)
         past_flat = past_fi_j.flatten()
         past_mask = ~np.isnan(past_flat)
         past_vals = past_flat[past_mask]
@@ -137,9 +134,9 @@ class DistFIDiagnosis:
 
     def compute_rds_at_round(
         self,
-        fi_matrix: np.ndarray,  # Shape: (n_rounds, n_clients, n_features)
-        current_idx: int,  # Index of current round
-        past_start_idx: int,  # Start index of past window
+        fi_matrix: np.ndarray,
+        current_idx: int,
+        past_start_idx: int,
         client_weights: Optional[np.ndarray] = None,
     ) -> np.ndarray:
         """
@@ -151,8 +148,8 @@ class DistFIDiagnosis:
         n_rounds, n_clients, n_features = fi_matrix.shape
         rds_scores = np.zeros(n_features)
         
-        current_fi = fi_matrix[current_idx]            # (n_clients, n_features)
-        past_fi = fi_matrix[past_start_idx:current_idx] # (R, n_clients, n_features)
+        current_fi = fi_matrix[current_idx]
+        past_fi = fi_matrix[past_start_idx:current_idx]
 
         for j in range(n_features):
             rds_scores[j], _, _ = self._rds_for_feature(
@@ -162,8 +159,8 @@ class DistFIDiagnosis:
     
     def compute_rds_with_calibration(
         self,
-        fi_matrix: np.ndarray,  # Shape: (window_size, n_clients, n_features)
-        diagnosis_rounds: List[int],  # Actual round numbers
+        fi_matrix: np.ndarray,
+        diagnosis_rounds: List[int],
         client_weights: Optional[np.ndarray] = None,
     ) -> DistFIResult:
         """
@@ -178,7 +175,6 @@ class DistFIDiagnosis:
             raise ValueError(f"Not enough rounds for RDS computation. "
                            f"Need at least {self.rds_window + 1} rounds, got {n_rounds}")
         
-        # Compute RDS for all available rounds
         rds_series = np.zeros((n_rds_rounds, n_features))
         rds_round_indices = []
         
@@ -190,7 +186,6 @@ class DistFIDiagnosis:
                 client_weights=client_weights)
             rds_round_indices.append(diagnosis_rounds[current_idx])
         
-        # Calibration: use all but last RDS value for mu, sigma
         n_calibration_actual = min(
             getattr(self, 'n_calibration', n_rds_rounds - 1),
             n_rds_rounds - 1,
@@ -210,7 +205,6 @@ class DistFIDiagnosis:
         triggered_features = final_rds > thresholds
         feature_ranking = np.argsort(final_rds)[::-1]
         
-        # Raw Wasserstein / past-std for trigger round
         trigger_idx = n_rounds - 1
         past_start = trigger_idx - self.rds_window
         current_fi = fi_matrix[trigger_idx]
@@ -238,7 +232,7 @@ class DistFIDiagnosis:
     
     def compute_rds(
         self,
-        fi_matrix: np.ndarray,  # Shape: (window_size+1, n_clients, n_features)
+        fi_matrix: np.ndarray,
         trigger_idx: int = -1,
         client_weights: Optional[np.ndarray] = None,
     ) -> DistFIResult:
@@ -326,8 +320,8 @@ class DistFIWithClients(DistFIDiagnosis):
         if trigger_idx == -1:
             trigger_idx = n_rounds - 1
         
-        current_fi = fi_matrix[trigger_idx]  # (n_clients, n_features)
-        past_fi = fi_matrix[:trigger_idx]    # (past_rounds, n_clients, n_features)
+        current_fi = fi_matrix[trigger_idx]
+        past_fi = fi_matrix[:trigger_idx]
         
         if client_weights is not None:
             n_past = past_fi.shape[0]

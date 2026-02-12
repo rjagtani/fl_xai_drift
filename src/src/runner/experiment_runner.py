@@ -88,13 +88,11 @@ class ExperimentRunner:
         if self.trainer is None:
             raise RuntimeError("Must run training before trigger detection")
         
-        # Get loss data
         loss_series = np.array(self.trainer.global_loss_series)
         loss_matrix = np.load(self.config.logs_dir / "client_loss_matrix.npy")
         
         t0 = self.config.drift.t0
         
-        # Create multi-method detector using config
         trigger_cfg = self.config.trigger
         detector = MultiMethodDetector(
             warmup_rounds=trigger_cfg.warmup_rounds,
@@ -110,10 +108,8 @@ class ExperimentRunner:
             fwer_p=trigger_cfg.fwer_p,
         )
         
-        # Run all 3 detection methods
         results = detector.detect(loss_matrix, loss_series, t0)
         
-        # Log results for each method
         print(f"  Drift onset (t0): round {t0}")
         print()
         
@@ -126,20 +122,16 @@ class ExperimentRunner:
             if result.score is not None:
                 print(f"    Score: {result.score:.4f}")
         
-        # Prefer RDS trigger if it triggered at or after calibration
-        # Filter out false positives (triggers before t0) for other methods
         calibration_end = self.config.trigger.calibration_end_round
         
         rds_result = results['rds']
         if rds_result.triggered and rds_result.trigger_round >= calibration_end:
-            # RDS triggered after calibration - use it
             self.trigger_result = rds_result
             triggered = True
             trigger_round = rds_result.trigger_round
             detection_delay = rds_result.detection_delay
             trigger_method = 'rds'
         else:
-            # Check other methods for valid triggers (after t0)
             valid_triggers = [
                 r for r in results.values()
                 if r.triggered and r.trigger_round is not None and r.trigger_round >= t0
@@ -152,7 +144,6 @@ class ExperimentRunner:
                 detection_delay = first_valid.detection_delay
                 trigger_method = first_valid.method
             else:
-                # No valid trigger - use RDS result (may have max score round)
                 self.trigger_result = rds_result
                 triggered = False
                 trigger_round = rds_result.trigger_round
@@ -165,7 +156,6 @@ class ExperimentRunner:
         else:
             print("  => No valid trigger detected (all triggers before t0 are false positives)")
         
-        # Save trigger results
         trigger_results = {
             'triggered': triggered,
             'trigger_round': trigger_round,
@@ -191,7 +181,6 @@ class ExperimentRunner:
             json.dump({k: v for k, v in trigger_results.items() 
                       if k not in ['loss_series', 'rds_scores']}, f, indent=2)
         
-        # Save RDS scores for plotting
         if results['rds'].all_scores:
             np.save(self.config.logs_dir / "rds_scores.npy", np.array(results['rds'].all_scores))
         
@@ -227,7 +216,6 @@ class ExperimentRunner:
         if self.trainer is None:
             raise RuntimeError("Must run training before FL baseline detection")
         
-        # Ground truth from config
         t0 = self.config.drift.t0
         n_clients = self.config.fl.n_clients
         drifted_proportion = self.config.drift.drifted_client_proportion
@@ -237,10 +225,8 @@ class ExperimentRunner:
         print(f"  Ground truth drifted clients: {ground_truth_clients}")
         print(f"  Drift onset (t0): round {t0}")
         
-        # Get FL baseline signals from trainer
-        confidence_matrix = self.trainer.client_confidence_matrix  # (n_rounds, n_clients)
+        confidence_matrix = self.trainer.client_confidence_matrix
         
-        # Get aggregated weight updates for FLASH
         aggregated_updates = None
         if self.trainer.aggregated_weight_updates:
             flattened = []
@@ -249,7 +235,6 @@ class ExperimentRunner:
                 flattened.append(flat)
             aggregated_updates = np.array(flattened)
         
-        # Get per-client weight updates for Manias
         client_weight_updates = None
         if self.trainer.client_weight_updates:
             n_rounds = len(self.trainer.client_weight_updates)
@@ -267,13 +252,11 @@ class ExperimentRunner:
                         flat = np.concatenate([u.flatten() for u in update])
                         client_weight_updates[r, client_id, :] = flat
         
-        # Get calibration parameters
         trigger_cfg = self.config.trigger
         calibration_start = trigger_cfg.calibration_start_round
         calibration_end = trigger_cfg.calibration_end_round
         confirm_consecutive = trigger_cfg.confirm_consecutive
         
-        # Create FL baseline detector
         fl_baseline = FLBaselineMultiDetector(
             calibration_start=calibration_start,
             calibration_end=calibration_end,
@@ -281,7 +264,6 @@ class ExperimentRunner:
             alpha=3.0,
         )
         
-        # Run detection with original signals
         results = fl_baseline.detect(
             aggregated_updates=aggregated_updates,
             confidence_matrix=confidence_matrix,
@@ -290,7 +272,6 @@ class ExperimentRunner:
             t0=t0,
         )
         
-        # Log results
         print()
         for method_name, system_result in results.items():
             status = "SUCCESS" if system_result.triggered else "NOT TRIGGERED"
@@ -305,15 +286,11 @@ class ExperimentRunner:
                 n_triggered = sum(1 for c in system_result.client_results.values() if c.triggered)
                 print(f"    Clients triggered: {n_triggered}/{len(system_result.client_results)}")
         
-        # Compute trigger metrics for each baseline
         baseline_trigger_metrics = {}
         for method_name, system_result in results.items():
             triggered = system_result.triggered
             has_fp = system_result.has_false_positive
             
-            # TP: success (all drifted detected at/after t0, no FP)
-            # FP: any client triggered before t0
-            # FN: not all drifted detected and no FP
             if triggered:
                 tp, fp, fn = 1, 0, 0
             elif has_fp:
@@ -333,7 +310,6 @@ class ExperimentRunner:
                 'recall': tp / (tp + fn) if (tp + fn) > 0 else 0.0,
             }
         
-        # Save results
         fl_baseline_results = {
             't0': t0,
             'ground_truth_clients': list(ground_truth_clients),
@@ -387,21 +363,17 @@ class ExperimentRunner:
         if self.trainer is None:
             raise RuntimeError("Must run training before diagnosis")
         
-        # Determine trigger round
         if trigger_round is None:
             if self.trigger_result is not None and self.trigger_result.triggered:
                 trigger_round = self.trigger_result.trigger_round
             else:
-                # Use last round if no trigger
                 trigger_round = self.config.fl.n_rounds
                 print(f"  No trigger detected, using final round: {trigger_round}")
         
         print(f"  Diagnosis trigger round: {trigger_round}")
         
-        # Create diagnosis engine
         engine = DiagnosisEngine(self.config, self.trainer)
         
-        # Run diagnosis
         self.diagnosis_results = engine.run_diagnosis(trigger_round)
         
         stage_elapsed = time.time() - stage_start
@@ -426,22 +398,18 @@ class ExperimentRunner:
         if self.diagnosis_results is None:
             raise RuntimeError("Must run diagnosis before evaluation")
         
-        # Get ground truth drifted features
         ground_truth = self.trainer.get_drifted_feature_indices()
         
-        # Override with config if specified
         if self.config.drift.drifted_features:
             ground_truth = self.config.drift.drifted_features
         
         print(f"  Ground truth drifted features: {ground_truth}")
         
-        # Determine K
         k = self.config.metrics.k
         if self.config.metrics.use_ground_truth_k:
             k = len(ground_truth)
         print(f"  Using K = {k}")
         
-        # Get rankings from diagnosis
         rankings = {}
         
         for name, result in self.diagnosis_results['dist_fi'].items():
@@ -450,12 +418,10 @@ class ExperimentRunner:
         for name, result in self.diagnosis_results['mean_fi_ph'].items():
             rankings[name] = result.feature_ranking
         
-        # Compute metrics
         metrics = compute_all_metrics(rankings, ground_truth, k)
         
         self.metrics_results = metrics
         
-        # Print results
         print("\n  Results:")
         for name, m in sorted(metrics.items()):
             print(f"    {name}:")
@@ -464,7 +430,6 @@ class ExperimentRunner:
             print(f"      Recall@{k}: {m.recall_at_k:.3f}")
             print(f"      MRR: {m.mrr:.3f}")
         
-        # Save metrics
         save_metrics(metrics, self.config.metrics_dir / "evaluation_metrics.json")
         
         stage_elapsed = time.time() - stage_start
@@ -495,7 +460,6 @@ class ExperimentRunner:
         if not ground_truth:
             ground_truth = self.trainer.get_drifted_feature_indices()
         
-        # 1. Training curves (loss plot)
         try:
             global_loss = self.trainer.global_loss_series
             client_loss = np.load(self.config.logs_dir / "client_loss_matrix.npy")
@@ -510,7 +474,6 @@ class ExperimentRunner:
         except Exception as e:
             print(f"    Warning: Could not generate training_curves.png: {e}")
         
-        # 2. Loss + RDS detection plot (always generated)
         try:
             loss_series = trigger_results.get('loss_series', [])
             rds_scores = trigger_results.get('rds_scores', [])
@@ -534,7 +497,6 @@ class ExperimentRunner:
         except Exception as e:
             print(f"    Warning: Could not generate loss_rds_detection.png: {e}")
         
-        # Skip FI plots if no diagnosis
         if diagnosis_results is None:
             print("    Skipping FI plots (no diagnosis results)")
             return
@@ -542,7 +504,6 @@ class ExperimentRunner:
         diagnosis_rounds = diagnosis_results.get('diagnosis_rounds', [])
         fi_matrices = diagnosis_results.get('fi_matrices', {})
         
-        # 2. FI heatmaps for each method
         for method, fi_matrix in fi_matrices.items():
             try:
                 plot_fi_heatmap(
@@ -556,7 +517,6 @@ class ExperimentRunner:
             except Exception as e:
                 print(f"    Warning: Could not generate fi_{method}.png: {e}")
         
-        # 3. Diagnosis rankings plot
         try:
             rankings = {}
             for name, result in diagnosis_results.get('dist_fi', {}).items():
@@ -575,7 +535,6 @@ class ExperimentRunner:
         except Exception as e:
             print(f"    Warning: Could not generate diagnosis_rankings.png: {e}")
         
-        # 4. RDS scores plot
         try:
             rds_scores = {}
             for name, result in diagnosis_results.get('dist_fi', {}).items():
@@ -592,15 +551,12 @@ class ExperimentRunner:
         except Exception as e:
             print(f"    Warning: Could not generate rds_scores.png: {e}")
         
-        # 5. FI + RDS detection plots (similar to loss + RDS detection)
-        # One plot per FI method showing FI values and their RDS over diagnosis window
         for method, fi_matrix in fi_matrices.items():
             try:
                 dist_fi_key = f'dist_{method}'
                 if dist_fi_key in diagnosis_results.get('dist_fi', {}):
                     dist_result = diagnosis_results['dist_fi'][dist_fi_key]
                     
-                    # Only plot if we have calibration data
                     if dist_result.rds_series is not None and dist_result.thresholds is not None:
                         plot_fi_and_rds_detection(
                             fi_matrix=fi_matrix,
@@ -633,13 +589,10 @@ class ExperimentRunner:
         print(f"EXPERIMENT: {self.config.experiment_name}")
         print("=" * 60)
         
-        # Stage 1: Training
         training_summary = self.run_training()
         
-        # Stage 2: Trigger Detection
         trigger_results = self.run_trigger_detection()
         
-        # Stage 2b: FL Baseline Detection
         fl_baseline_results = self.run_fl_baselines()
         
         skip_fi_and_diagnosis = (
@@ -653,13 +606,10 @@ class ExperimentRunner:
             diagnosis_results = None
             metrics = None
         else:
-            # Stage 3: Diagnosis
             diagnosis_results = self.run_diagnosis()
             diagnosis_time = diagnosis_results.get('stage_time_seconds', 0.0)
-            # Stage 4: Evaluation
             metrics = self.run_evaluation()
         
-        # Stage 5: Generate Plots
         plot_start = time.time()
         self._generate_plots(trigger_results, diagnosis_results)
         plot_elapsed = time.time() - plot_start
@@ -667,7 +617,6 @@ class ExperimentRunner:
         
         elapsed = time.time() - start_time
         
-        # Timing summary
         training_time = training_summary.get('stage_time_seconds', 0.0)
         trigger_time = trigger_results.get('stage_time_seconds', 0.0)
         fl_baseline_time = fl_baseline_results.get('stage_time_seconds', 0.0)
@@ -685,7 +634,6 @@ class ExperimentRunner:
         print(f"  Results saved to: {self.config.output_dir}")
         print("=" * 60)
         
-        # Compile final results
         final_results = {
             'experiment_name': self.config.experiment_name,
             'seed': self.config.seed,
@@ -714,7 +662,6 @@ class ExperimentRunner:
                 for name, m in metrics.items()
             }
         
-        # Save final summary
         with open(self.config.output_dir / "experiment_summary.json", 'w') as f:
             json.dump(final_results, f, indent=2, default=str)
         
@@ -755,14 +702,12 @@ class BatchExperimentRunner:
                 'metrics': runner.metrics_results,
             })
         
-        # Aggregate results
         aggregated = self._aggregate_results()
         
         return aggregated
     
     def _aggregate_results(self) -> Dict[str, Any]:
         """Aggregate results across all runs."""
-        # Group by drift configuration
         by_drift_config: Dict[str, List[Dict[str, Any]]] = {}
         
         for r in self.results:
@@ -773,7 +718,6 @@ class BatchExperimentRunner:
                 by_drift_config[key] = []
             by_drift_config[key].append(r)
         
-        # Aggregate metrics for each configuration
         aggregated = {}
         
         for drift_key, runs in by_drift_config.items():
@@ -786,7 +730,6 @@ class BatchExperimentRunner:
                 print(f"\n{drift_key}:")
                 print(create_results_table(agg_metrics))
         
-        # Save aggregated results
         if self.configs:
             base_dir = self.configs[0].base_output_dir
             summary_dir = base_dir / "aggregated"
@@ -805,7 +748,7 @@ def run_hyperplane_experiments(
     seeds: List[int] = [42, 123, 456, 789, 101112],
     drift_proportions: List[float] = [0.1, 0.2, 0.4, 0.8],
     drift_magnitudes: List[float] = [0.3, 0.5, 0.7],
-    drifted_features: Set[int] = {0, 1},  # First two features for Hyperplane
+    drifted_features: Set[int] = {0, 1},
     base_output_dir: Path = Path("results"),
 ) -> Dict[str, Any]:
     """
@@ -827,7 +770,7 @@ def run_hyperplane_experiments(
 def run_agrawal_experiments(
     seeds: List[int] = [42, 123, 456, 789, 101112],
     drift_proportions: List[float] = [0.1, 0.2, 0.4, 0.8],
-    drifted_features: Set[int] = {0, 2, 3},  # salary, age, elevel for function switch 0->2
+    drifted_features: Set[int] = {0, 2, 3},
     base_output_dir: Path = Path("results"),
 ) -> Dict[str, Any]:
     """
@@ -837,7 +780,7 @@ def run_agrawal_experiments(
         dataset_name='agrawal',
         seeds=seeds,
         drift_proportions=drift_proportions,
-        drift_magnitudes=[1.0],  # Not used for Agrawal
+        drift_magnitudes=[1.0],
         drifted_features=drifted_features,
         base_output_dir=base_output_dir,
     )

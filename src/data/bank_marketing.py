@@ -64,7 +64,6 @@ class BankMarketingDataGenerator(BaseDataGenerator):
         data = fetch_openml(data_id=1461, as_frame=True, parser="auto")
         df = data.frame
 
-        # Identify target column
         target_candidates = ['y', 'Class', 'class', 'V17']
         target_col = None
         for tc in target_candidates:
@@ -78,16 +77,12 @@ class BankMarketingDataGenerator(BaseDataGenerator):
         y = (y_raw.isin(['yes', '1', '2'])).astype(np.int64)
         df = df.drop(columns=[target_col])
 
-        # Normalise column names to lowercase for matching
         df.columns = [str(c).strip().lower() for c in df.columns]
 
-        # Remove duration (target leakage)
         for dur_name in ['duration', 'v12']:
             if dur_name in df.columns:
                 df = df.drop(columns=[dur_name])
 
-        # Map actual columns to canonical feature names
-        # OpenML bank-marketing may use V1..V16 or actual names
         canonical_map = {}
         expected_names_lower = [f.lower() for f in BANK_FEATURE_NAMES]
         for col in df.columns:
@@ -95,24 +90,18 @@ class BankMarketingDataGenerator(BaseDataGenerator):
                 canonical_map[col] = col
 
         if len(canonical_map) < len(BANK_FEATURE_NAMES) // 2:
-            # Columns are likely V1, V2, ... positional; map by position
-            # Bank Marketing order: age,job,marital,education,default,balance,
-            #   housing,loan,contact,day,month, [duration removed], campaign,pdays,previous,poutcome
             positional = [c for c in df.columns if c not in (target_col,)]
             feature_cols = positional[:len(BANK_FEATURE_NAMES)]
             rename_map = {old: new for old, new in zip(feature_cols, BANK_FEATURE_NAMES)}
             df = df.rename(columns=rename_map)
-        # Keep only feature columns
         feature_cols = [f for f in BANK_FEATURE_NAMES if f in df.columns]
         if not feature_cols:
             raise ValueError(f"Could not find expected Bank Marketing features in columns: {list(df.columns)}")
 
-        # Drop rows with missing values
         df = df[feature_cols].copy()
         df = df.dropna()
         y = y.loc[df.index].values
 
-        # Build X
         X_list = []
         for f in feature_cols:
             if f in NUMERIC_COLS:
@@ -126,7 +115,6 @@ class BankMarketingDataGenerator(BaseDataGenerator):
         self._feature_names = feature_cols
         self.n_features = len(feature_cols)
 
-        # Job column for client partitioning
         job_col = df['job'].astype(str).values if 'job' in df.columns else df.iloc[:, 1].astype(str).values
         return X, y, job_col
 
@@ -168,7 +156,6 @@ class BankMarketingDataGenerator(BaseDataGenerator):
         return self._feature_names.copy()
 
     def get_drifted_feature_indices(self) -> Set[int]:
-        # Default: balance (index 5)
         return {self._feature_names.index('balance')} if 'balance' in self._feature_names else {5}
 
     def generate_static_client_data(
